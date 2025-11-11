@@ -1,47 +1,79 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Defaults seguros por si no pasas variables
-UPLINK_IF="${UPLINK_IF:-eth0}"
-LAN_IF="${LAN_IF:-eth1}"
-LAN_CIDR="${LAN_CIDR:-10.200.0.0/24}"
+ROLE="${ROLE:-client}"
+log() { echo "[$(date +'%F %T')] $*"; }
 
-log() { echo "[router] $*"; }
+if [[ "$ROLE" = "router" ]]; then
+  # ---------- ROUTER ----------
+  : "${UPLINK_IF:=eth0}"      # Hacia Internet/host
+  : "${LAN_IF:=eth1}"         # Hacia LAN (red 'lan0')
+  : "${LAN_IP:=10.200.0.254}" # IP del router en la LAN
+  : "${LAN_CIDR:=10.200.0.0/24}"
 
-wait_iface() {
-  name="$1"
-  tries=30
-  while ! ip link show "$name" >/dev/null 2>&1; do
-    tries=$((tries-1)) || true
-    [ "$tries" -le 0 ] && log "ERROR: interfaz $name no aparece" && exit 1
-    log "esperando interfaz $name ..."
-    sleep 1
-  done
-}
+  log "Habilitando ip_forward"
+  sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 
-# 1) Activar ip_forward (no fallar si el host lo prohíbe)
-#  -> Lo ideal: pasar --sysctl net.ipv4.ip_forward=1 en docker run
-sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
-echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null || true
+  log "Asegurando reglas NAT (MASQUERADE) e inter-forwarding"
+  iptables -t nat -C POSTROUTING -o "$UPLINK_IF" -j MASQUERADE 2>/dev/null || \
+    iptables -t nat -A POSTROUTING -o "$UPLINK_IF" -j MASQUERADE
+  iptables -C FORWARD -i "$UPLINK_IF" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
+    iptables -A FORWARD -i "$UPLINK_IF" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT
+  iptables -C FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -j ACCEPT 2>/dev/null || \
+    iptables -A FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -j ACCEPT
 
-# 2) Esperar a que existan ambas interfaces
-wait_iface "$UPLINK_IF"
-wait_iface "$LAN_IF"
+  # ---------- DNS LOCAL con dnsmasq ----------
+  # Usa los resolvers del sistema (que Docker/host permiten).
+  if ! command -v dnsmasq >/dev/null 2>&1; then
+    log "Instalando dnsmasq..."
+    apt-get update -y
+    DEBIAN_FRONTEND=noninteractive apt-get install -y dnsmasq
+  fi
 
-# 3) Limpiar reglas previas (no fallar si no existen)
-iptables -t nat -F || true
-iptables -F || true
+  mkdir -p /etc/dnsmasq.d
+  cat > /etc/dnsmasq.d/lan.conf <<EOF
+# Escucha solo en la IP LAN del router:
+listen-address=${LAN_IP}
+interface=${LAN_IF}
+bind-interfaces
 
-# 4) NAT LAN -> UPLINK (idempotente)
-iptables -t nat -C POSTROUTING -s "$LAN_CIDR" -o "$UPLINK_IF" -j MASQUERADE 2>/dev/null \
-  || iptables -t nat -A POSTROUTING -s "$LAN_CIDR" -o "$UPLINK_IF" -j MASQUERADE
+# Reenvía usando los resolvers del sistema:
+resolv-file=/etc/resolv.conf
+no-poll
 
-# 5) FORWARD LAN->UPLINK y retorno (idempotente)
-iptables -C FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -s "$LAN_CIDR" -j ACCEPT 2>/dev/null \
-  || iptables -A FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -s "$LAN_CIDR" -j ACCEPT
+# Higiene/caché:
+domain-needed
+bogus-priv
+cache-size=1000
+EOF
 
-iptables -C FORWARD -i "$UPLINK_IF" -o "$LAN_IF" -d "$LAN_CIDR" -m state --state ESTABLISHED,RELATED -j ACCEPT 2>/dev/null \
-  || iptables -A FORWARD -i "$UPLINK_IF" -o "$LAN_IF" -d "$LAN_CIDR" -m state --state ESTABLISHED,RELATED -j ACCEPT
+  # Abrir DNS en INPUT desde LAN
+  iptables -C INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT 2>/dev/null || \
+    iptables -A INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT
+  iptables -C INPUT -i "$LAN_IF" -p tcp --dport 53 -j ACCEPT 2>/dev/null || \
+    iptables -A INPUT -i "$LAN_IF" -p tcp --dport 53 -j ACCEPT
 
-log "reglas aplicadas. Manteniendo el contenedor vivo..."
+  # Arrancar/recargar dnsmasq
+  if pgrep -x dnsmasq >/dev/null; then
+    log "Recargando dnsmasq"
+    killall -HUP dnsmasq || true
+  else
+    log "Iniciando dnsmasq"
+    dnsmasq --keep-in-foreground --conf-dir=/etc/dnsmasq.d,*.conf >/tmp/dnsmasq.log 2>&1 &
+  fi
+
+  log "Router listo. LAN=${LAN_CIDR}  LAN_IP=${LAN_IP}  DNS activo en ${LAN_IP}:53"
+
+else
+  # ---------- CLIENTE ----------
+  : "${ROUTER_IP:=10.200.0.254}"
+
+  # Ruta por defecto hacia el router
+  log "Configurando ruta por defecto vía ${ROUTER_IP}"
+  ip route replace default via "${ROUTER_IP}" || true
+
+  # NO tocamos /etc/resolv.conf; los DNS vienen de --dns
+fi
+
+log "Entrypoint terminado → ejecutando: $*"
 exec "$@"

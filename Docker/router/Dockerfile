@@ -1,19 +1,17 @@
-FROM debian:stable-slim
+FROM debian:bookworm-slim
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        iproute2 iputils-ping iptables curl ca-certificates procps && \
-    rm -rf /var/lib/apt/lists/*
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Habilitar el forwarding de forma persistente
-RUN echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    iproute2 iptables iputils-ping curl dnsutils ca-certificates \
+    xvfb x11vnc fluxbox novnc websockify chromium \
+  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-ENV LAN_CIDR=10.200.0.0/24 \
-    UPLINK_IF=eth0 \
-    LAN_IF=eth1
+COPY entrypoint.sh /entrypoint.sh
+COPY start-ui.sh /usr/local/bin/start-ui.sh
+RUN chmod +x /entrypoint.sh /usr/local/bin/start-ui.sh
 
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+ENV DISPLAY=:0 VNC_PORT=5900 NOVNC_PORT=6081 VNC_PW=routerpass \
+    BROWSER_URL=https://example.com SCREEN_GEOMETRY=1280x800x24
 
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["sleep", "infinity"]
+ENTRYPOINT ["/entrypoint.sh"]

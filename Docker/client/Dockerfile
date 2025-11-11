@@ -1,22 +1,22 @@
-FROM debian:stable-slim
+FROM debian:bookworm-slim
 
-# Herramientas útiles para portal cautivo y troubleshooting
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-      iproute2 iputils-ping curl ca-certificates \
-      dnsutils netcat-openbsd tcpdump jq \
-    && rm -rf /var/lib/apt/lists/*
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Variables ajustables
-ENV ROUTER_IP=10.200.0.254 \
-    DNS1=1.1.1.1 \
-    DNS2=8.8.8.8
+# Paquetes de red y UI
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    iproute2 iputils-ping curl dnsutils ca-certificates \
+    xvfb x11vnc fluxbox novnc websockify chromium \
+  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Scripts  para detección/login de portal cautivo
+# Archivos del proyecto
+COPY entrypoint.sh /entrypoint.sh
+COPY start-ui.sh /usr/local/bin/start-ui.sh
+RUN chmod +x /entrypoint.sh /usr/local/bin/start-ui.sh
 
+# Variables por defecto para la UI
+ENV DISPLAY=:0 VNC_PORT=5900 NOVNC_PORT=6081 VNC_PW=clientpass \
+    BROWSER_URL=https://example.com SCREEN_GEOMETRY=1280x800x24
 
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
-
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["sleep", "infinity"]
+# Mantenemos tu entrypoint original para configurar routing/DNS, etc.
+ENTRYPOINT ["/entrypoint.sh"]
+# No definimos CMD para permitir lanzar UI desde el run-script
