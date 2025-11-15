@@ -1,0 +1,5 @@
+[
+  {"u": "admin", "p": "admin"},
+  {"u": "alice", "p": "1234"},
+  {"u": "bob",   "p": "qwerty"}
+]
