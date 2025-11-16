@@ -46,7 +46,7 @@ no-poll
 domain-needed
 bogus-priv
 cache-size=${DNS_CACHE_SIZE}
-EOF 
+EOF
 
 # ---------Abren el DNS del router para que los clientes LAN puedan usarlo como servidor DNS.---------------
 iptables -C INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT 2>/dev/null || iptables -A INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT   # UDP

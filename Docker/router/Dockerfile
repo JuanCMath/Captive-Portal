@@ -10,8 +10,6 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     x11vnc xvfb fluxbox novnc websockify chromium \
   && rm -rf /var/lib/apt/lists/*
 
-
-
 # --- Crear y activar venv ---
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
@@ -28,5 +26,6 @@ COPY start-ui.sh /usr/local/bin/start-ui.sh
 RUN chmod +x /entrypoint.sh /usr/local/bin/start-ui.sh \
  && mkdir -p /etc/dnsmasq.d
 
-EXPOSE 80 6081
+EXPOSE 80
+
 CMD ["/entrypoint.sh"]
