@@ -2,25 +2,24 @@
 set -euo pipefail
 
 # ---------- Vars ----------
-: "${ROLE:=router}"
-: "${UPLINK_IF:=eth0}"
-: "${LAN_IF:=eth1}"
-: "${LAN_IP:=10.200.0.254}"
-: "${LAN_CIDR:=10.200.0.0/24}"
-: "${PORTAL_PORT:=80}"            # Portal HTTP
+: "${UPLINK_IF:=eth0}"            # Interfaz con salida a internet 
+: "${LAN_IF:=eth1}"               # Interfaz de la LAN
+: "${LAN_IP:=10.200.0.254}"       # IP del router
+: "${LAN_CIDR:=10.200.0.0/24}"    # LAN MASK
+: "${PORTAL_PORT:=80}"            # Portal HTTP (donde se levanta el servidor de FastAPI)
 : "${DNS_CACHE_SIZE:=1000}"
 : "${AUTH_TIMEOUT:=3600}"         # seg. en ipset
-: "${BROWSER_URL:=}"              # si quieres que abra algo en el UI
+: "${BROWSER_URL:=}"              # URL por defecto al abrir noVNC
 
 log(){ echo "[$(date +'%F %T')] $*"; }
 
 # ---------- Routing base ----------
 log "Habilitando ip_forward"
-sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true  #Activa el reenvio de paquetes entre interfaces (eth0 <-> eth1)
 
 log "Reglas NAT WAN<->LAN"
-iptables -t nat -C POSTROUTING -o "$UPLINK_IF" -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o "$UPLINK_IF" -j MASQUERADE
-iptables -C FORWARD -i "$UPLINK_IF" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || iptables -A FORWARD -i "$UPLINK_IF" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT
+iptables -t nat -C POSTROUTING -o "$UPLINK_IF" -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o "$UPLINK_IF" -j MASQUERADE # Enmascara todos los paquetes que salgan por eth0 dandole la misma IP a todos
+iptables -C FORWARD -i "$UPLINK_IF" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || iptables -A FORWARD -i "$UPLINK_IF" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT #Acepta el trafico eth0 -> eth1 si cumple con RELATED o ESTABLISHED
 
 # ---------- Esperar a que la interfaz LAN exista con la IP correcta ----------
 for i in {1..20}; do
@@ -39,7 +38,7 @@ fi
 
 mkdir -p /etc/dnsmasq.d
 cat > /etc/dnsmasq.d/lan.conf <<EOF
-listen-address=${LAN_IP}
+listen-address=${LAN_IP}           
 interface=${LAN_IF}
 bind-interfaces
 resolv-file=/etc/resolv.conf
@@ -47,10 +46,11 @@ no-poll
 domain-needed
 bogus-priv
 cache-size=${DNS_CACHE_SIZE}
-EOF
+EOF 
 
-iptables -C INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT 2>/dev/null || iptables -A INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT
-iptables -C INPUT -i "$LAN_IF" -p tcp --dport 53 -j ACCEPT 2>/dev/null || iptables -A INPUT -i "$LAN_IF" -p tcp --dport 53 -j ACCEPT
+# ---------Abren el DNS del router para que los clientes LAN puedan usarlo como servidor DNS.---------------
+iptables -C INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT 2>/dev/null || iptables -A INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT   # UDP
+iptables -C INPUT -i "$LAN_IF" -p tcp --dport 53 -j ACCEPT 2>/dev/null || iptables -A INPUT -i "$LAN_IF" -p tcp --dport 53 -j ACCEPT   # TCP
 
 if pgrep -x dnsmasq >/dev/null; then
   log "Recargando dnsmasq"; killall -HUP dnsmasq || true
@@ -67,7 +67,7 @@ ipset create authed hash:ip timeout "${AUTH_TIMEOUT}" -exist || true
 iptables -t nat -N CP_REDIRECT 2>/dev/null || true
 iptables -N CP_FILTER 2>/dev/null || true
 
-# Limpia reglas previas (idempotente)
+# Limpia reglas previas 
 iptables -t nat -F CP_REDIRECT || true
 iptables -F CP_FILTER || true
 

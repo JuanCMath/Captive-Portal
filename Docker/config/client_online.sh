@@ -18,7 +18,6 @@ run_client () {
     --network "${LAN_NET}" --ip "${IP}" \
     --cap-add=NET_ADMIN \
     --dns "${ROUTER_IP}" \
-    -e ROLE=client \
     -e ROUTER_IP="${ROUTER_IP}" \
     -e VNC_PW="${PW}" \
     -e BROWSER_URL="${BROWSER_URL:-https://example.com}" \

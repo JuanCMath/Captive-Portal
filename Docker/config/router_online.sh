@@ -11,7 +11,6 @@ docker rm -f router 2>/dev/null || true
 docker run -d --name router \
   --cap-add=NET_ADMIN --cap-add=NET_RAW \
   --sysctl net.ipv4.ip_forward=1 \
-  -e ROLE=router \
   -e UPLINK_IF=eth0 \
   -e LAN_IF=eth1 \
   -e LAN_IP="${LAN_IP}" \
