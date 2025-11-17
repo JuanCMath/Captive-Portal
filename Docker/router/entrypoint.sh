@@ -151,7 +151,40 @@ fi
 cat >/etc/nginx/conf.d/portal.conf <<EOF
 server {
     listen ${NGINX_HTTP_PORT} default_server;
-    return 301 https://${CERT_CN}\$request_uri;
+    server_name _;
+
+    # --- Endpoint explícito de detección manual ---
+    # Si en un cliente abres http://<IP_ROUTER>/captive ves una página clara.
+    location = /captive {
+        default_type text/html;
+        return 200 '<!doctype html><html><head><meta charset="utf-8"><title>Portal cautivo</title></head><body><h1>Red con portal cautivo</h1><p>Tu dispositivo ha detectado un portal cautivo en esta red.</p><p><a href="https://${CERT_CN}/login">Haz clic aquí para iniciar sesión de forma segura</a>.</p></body></html>';
+    }
+
+    # --- Rutas típicas de detección de portal cautivo ---
+    # Android
+    location = /generate_204 {
+        return 302 https://${CERT_CN}/login;
+    }
+
+    # Windows
+    location = /connecttest.txt {
+        return 302 https://${CERT_CN}/login;
+    }
+
+    location = /ncsi.txt {
+        return 302 https://${CERT_CN}/login;
+    }
+
+    # Apple
+    location = /hotspot-detect.html {
+        return 302 https://${CERT_CN}/login;
+    }
+
+    location = / {
+        # Cualquier otro HTTP (usuario no autenticado, gracias a iptables)
+        # también será redirigido al portal HTTPS.
+        return 302 https://${CERT_CN}\$request_uri;
+    }
 }
 
 server {
@@ -160,7 +193,6 @@ server {
 
     ssl_certificate     ${TLS_CERT};
     ssl_certificate_key ${TLS_KEY};
-
     ssl_protocols TLSv1.2 TLSv1.3;
 
     location / {
@@ -172,6 +204,7 @@ server {
     }
 }
 EOF
+
 
 iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j ACCEPT 2>/dev/null \
   || iptables -A INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j ACCEPT
