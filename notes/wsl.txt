@@ -1,1 +1,4 @@
 cd /mnt/c/Users/Juank/Proyectos/Captive-Portal/Docker
+
+
+CLIENTE → HTTPS (TLS cifrado) → NGINX → HTTP interno → BACKEND PYTHON

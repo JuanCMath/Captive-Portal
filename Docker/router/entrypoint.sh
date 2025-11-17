@@ -1,44 +1,61 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ---------- Vars ----------
-: "${UPLINK_IF:=eth0}"            # Interfaz con salida a internet 
-: "${LAN_IF:=eth1}"               # Interfaz de la LAN
-: "${LAN_IP:=10.200.0.254}"       # IP del router
-: "${LAN_CIDR:=10.200.0.0/24}"    # LAN MASK
-: "${PORTAL_PORT:=80}"            # Portal HTTP (donde se levanta el servidor de FastAPI)
+#####################################
+#           VARIABLES
+#####################################
+: "${UPLINK_IF:=eth0}"                 # WAN
+: "${LAN_IF:=eth1}"                    # LAN
+: "${LAN_IP:=10.200.0.254}"            # IP router LAN
+: "${LAN_CIDR:=10.200.0.0/24}"         # Subred LAN
+: "${PORTAL_PORT:=8080}"               # Puerto backend Python
+: "${NGINX_HTTP_PORT:=80}"             # Puerto HTTP (redirige a HTTPS)
+: "${NGINX_HTTPS_PORT:=443}"           # Puerto HTTPS
 : "${DNS_CACHE_SIZE:=1000}"
-: "${AUTH_TIMEOUT:=3600}"         # seg. en ipset
-: "${BROWSER_URL:=}"              # URL por defecto al abrir noVNC
+: "${AUTH_TIMEOUT:=3600}"              # Timeout ipset
+: "${CERT_CN:=portal.local}"           # Nombre del certificado TLS
+: "${BROWSER_URL:=}"                   # noVNC (opcional)
 
 log(){ echo "[$(date +'%F %T')] $*"; }
 
-# ---------- Routing base ----------
+#####################################
+#        CONFIG SISTEMA BASE
+#####################################
+
 log "Habilitando ip_forward"
-sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true  #Activa el reenvio de paquetes entre interfaces (eth0 <-> eth1)
+sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 
-log "Reglas NAT WAN<->LAN"
-iptables -t nat -C POSTROUTING -o "$UPLINK_IF" -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o "$UPLINK_IF" -j MASQUERADE # Enmascara todos los paquetes que salgan por eth0 dandole la misma IP a todos
-iptables -C FORWARD -i "$UPLINK_IF" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || iptables -A FORWARD -i "$UPLINK_IF" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT #Acepta el trafico eth0 -> eth1 si cumple con RELATED o ESTABLISHED
+log "Configurando NAT (LAN -> WAN)"
+iptables -t nat -C POSTROUTING -o "$UPLINK_IF" -j MASQUERADE 2>/dev/null \
+  || iptables -t nat -A POSTROUTING -o "$UPLINK_IF" -j MASQUERADE
 
-# ---------- Esperar a que la interfaz LAN exista con la IP correcta ----------
+iptables -C FORWARD -i "$UPLINK_IF" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null \
+  || iptables -A FORWARD -i "$UPLINK_IF" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+#####################################
+#  ESPERAR LAN IP
+#####################################
+
 for i in {1..20}; do
-  if ip addr show "$LAN_IF" >/dev/null 2>&1 && ip addr show "$LAN_IF" | grep -q "$LAN_IP"; then
-    log "Interfaz ${LAN_IF} lista con IP ${LAN_IP}"
+  if ip addr show "$LAN_IF" | grep -q "$LAN_IP"; then
+    log "Interfaz LAN lista con IP $LAN_IP"
     break
   fi
-  log "Esperando a que ${LAN_IF} tenga IP ${LAN_IP}..."
+  log "Esperando IP en $LAN_IF..."
   sleep 1
 done
 
-# ---------- DNS local con dnsmasq ----------
-if ! command -v dnsmasq >/dev/null 2>&1; then
-  apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get install -y dnsmasq
+#####################################
+#              DNSMASQ
+#####################################
+
+if ! command -v dnsmasq >/dev/null; then
+  apt-get update -y && apt-get install -y dnsmasq
 fi
 
 mkdir -p /etc/dnsmasq.d
 cat > /etc/dnsmasq.d/lan.conf <<EOF
-listen-address=${LAN_IP}           
+listen-address=${LAN_IP}
 interface=${LAN_IF}
 bind-interfaces
 resolv-file=/etc/resolv.conf
@@ -46,67 +63,130 @@ no-poll
 domain-needed
 bogus-priv
 cache-size=${DNS_CACHE_SIZE}
+address=/${CERT_CN}/${LAN_IP}
 EOF
 
-# ---------Abren el DNS del router para que los clientes LAN puedan usarlo como servidor DNS.---------------
-iptables -C INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT 2>/dev/null || iptables -A INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT   # UDP
-iptables -C INPUT -i "$LAN_IF" -p tcp --dport 53 -j ACCEPT 2>/dev/null || iptables -A INPUT -i "$LAN_IF" -p tcp --dport 53 -j ACCEPT   # TCP
+iptables -C INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT 2>/dev/null || \
+iptables -A INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT
 
-if pgrep -x dnsmasq >/dev/null; then
-  log "Recargando dnsmasq"; killall -HUP dnsmasq || true
-else
-  log "Iniciando dnsmasq"
-  dnsmasq --keep-in-foreground --conf-dir=/etc/dnsmasq.d,*.conf >/tmp/dnsmasq.log 2>&1 &
-fi
+iptables -C INPUT -i "$LAN_IF" -p tcp --dport 53 -j ACCEPT 2>/dev/null || \
+iptables -A INPUT -i "$LAN_IF" -p tcp --dport 53 -j ACCEPT
 
-# ---------- Captive Portal (iptables/ipset) ----------
-log "Configurando ipset 'authed' (IPs autenticadas, timeout=${AUTH_TIMEOUT}s)"
-ipset create authed hash:ip timeout "${AUTH_TIMEOUT}" -exist || true
+pgrep -x dnsmasq >/dev/null \
+  && killall -HUP dnsmasq || \
+  dnsmasq --keep-in-foreground --conf-dir=/etc/dnsmasq.d >/tmp/dnsmasq.log 2>&1 &
 
-# Cadenas personalizadas
+#####################################
+#     IPSET + IPTABLES (PORTAL)
+#####################################
+
+log "Creando ipset authed"
+ipset create authed hash:ip timeout "${AUTH_TIMEOUT}" -exist
+
+# Cadenas
 iptables -t nat -N CP_REDIRECT 2>/dev/null || true
 iptables -N CP_FILTER 2>/dev/null || true
-
-# Limpia reglas previas 
 iptables -t nat -F CP_REDIRECT || true
 iptables -F CP_FILTER || true
 
-# 1) Permitir acceso al portal HTTP en el propio router desde la LAN
-iptables -C INPUT -i "$LAN_IF" -p tcp --dport "${PORTAL_PORT}" -j ACCEPT 2>/dev/null || \
-iptables -A INPUT -i "$LAN_IF" -p tcp --dport "${PORTAL_PORT}" -j ACCEPT
+# Permitir backend Python en LAN
+iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j ACCEPT 2>/dev/null || \
+iptables -A INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j ACCEPT
 
-# 2) Redirigir tráfico HTTP de clientes NO autenticados hacia el portal
-#    PREROUTING (solo LAN) → DNAT a LAN_IP:PORTAL_PORT si src !in ipset authed
-# Redirigir HTTP de NO autenticados -> portal
-iptables -t nat -C PREROUTING -i "$LAN_IF" -p tcp --dport 80 \
-  -m set ! --match-set authed src -j CP_REDIRECT 2>/dev/null || \
-iptables -t nat -A PREROUTING -i "$LAN_IF" -p tcp --dport 80 \
-  -m set ! --match-set authed src -j CP_REDIRECT
+# Redirigir NO autenticados HTTP 80 -> portal
+iptables -t nat -C PREROUTING -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" \
+  -m set ! --match-set authed src -j CP_REDIRECT 2>/dev/null \
+  || iptables -t nat -A PREROUTING -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" \
+       -m set ! --match-set authed src -j CP_REDIRECT
 
-# En la cadena CP_REDIRECT, repetir -p tcp porque usas :PORT en el DNAT
-iptables -t nat -F CP_REDIRECT || true
-iptables -t nat -A CP_REDIRECT -p tcp -j DNAT --to-destination "${LAN_IP}:${PORTAL_PORT}"
+# CP_REDIRECT → DNAT hacia nginx:80
+iptables -t nat -F CP_REDIRECT
+iptables -t nat -A CP_REDIRECT -p tcp -j DNAT --to-destination "${LAN_IP}:${NGINX_HTTP_PORT}"
 
+# --- Orden correcto de reglas FORWARD ---
 
-# 3) Bloquear FORWARD por defecto desde LAN→WAN si NO está autenticado
-#    Solo dejar pasar si src ∈ authed
-iptables -C FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src -j ACCEPT 2>/dev/null || \
-iptables -A FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src -j ACCEPT
+iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src -j ACCEPT 2>/dev/null || true
+iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" \
+  -m set ! --match-set authed src -j REJECT --reject-with tcp-reset 2>/dev/null || true
+iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -j REJECT 2>/dev/null || true
 
-# Por seguridad, añade un DROP explícito después de la aceptación condicional
-iptables -C FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -j REJECT 2>/dev/null || \
+# AUTENTICADOS → Internet OK
+iptables -I FORWARD 1 -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src -j ACCEPT
+
+# NO autenticados → HTTPS Bloqueado
+iptables -A FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" \
+  -m set ! --match-set authed src -j REJECT --reject-with tcp-reset
+
+# NO autenticados → bloquear todo
 iptables -A FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -j REJECT
 
-# ---------- Arrancar portal FastAPI ----------
-log "Levantando portal en :${PORTAL_PORT}"
-# Nota: workers>1 = concurrencia (hilos/ procesos gestionados por uvicorn)
-uvicorn app.main:app --host 0.0.0.0 --port "${PORTAL_PORT}" --workers 2 &
+#####################################
+#        BACKEND PYTHON
+#####################################
+
+log "Iniciando backend Python en puerto ${PORTAL_PORT}"
+cd /app
+python3 -u -m app.main "${PORTAL_PORT}" &
 PORTAL_PID=$!
 
-# ---------- UI opcional (noVNC/navegador) ----------
-if [[ -n "${BROWSER_URL}" ]]; then
+#####################################
+#        NGINX + TLS
+#####################################
+
+TLS_KEY="/etc/ssl/private/portal.key"
+TLS_CERT="/etc/ssl/certs/portal.crt"
+
+rm -f /etc/nginx/sites-enabled/default /etc/nginx/conf.d/default.conf 2>/dev/null || true
+
+if [[ ! -f "$TLS_KEY" || ! -f "$TLS_CERT" ]]; then
+  log "Generando certificado TLS CN=${CERT_CN}"
+  mkdir -p /etc/ssl/private /etc/ssl/certs
+  openssl req -x509 -nodes -newkey rsa:2048 \
+    -keyout "$TLS_KEY" \
+    -out "$TLS_CERT" \
+    -days 365 \
+    -subj "/CN=${CERT_CN}" >/dev/null 2>&1
+fi
+
+cat >/etc/nginx/conf.d/portal.conf <<EOF
+server {
+    listen ${NGINX_HTTP_PORT} default_server;
+    return 301 https://${CERT_CN}\$request_uri;
+}
+
+server {
+    listen ${NGINX_HTTPS_PORT} ssl;
+    server_name ${CERT_CN};
+
+    ssl_certificate     ${TLS_CERT};
+    ssl_certificate_key ${TLS_KEY};
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    location / {
+        proxy_pass http://127.0.0.1:${PORTAL_PORT};
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+
+iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j ACCEPT 2>/dev/null \
+  || iptables -A INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j ACCEPT
+
+log "Arrancando nginx"
+nginx -g "daemon off;" &
+
+#####################################
+#              UI opcional
+#####################################
+
+if [[ -n "$BROWSER_URL" ]]; then
   /usr/local/bin/start-ui.sh &
 fi
 
-log "Router listo. LAN=${LAN_CIDR} LAN_IP=${LAN_IP} Portal=http://${LAN_IP}:${PORTAL_PORT}"
-wait "${PORTAL_PID}"
+log "Router listo. Portal en https://${CERT_CN}"
+
+wait "$PORTAL_PID"
