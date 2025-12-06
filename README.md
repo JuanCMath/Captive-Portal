@@ -13,7 +13,7 @@ Este proyecto constituye una solución completa de control de acceso a red que i
 
 ## Inicio Rápido
 
-### Opción 1: Despliegue con Docker (Recomendado para pruebas)
+### Opción 1: Despliegue con Docker (Recomendado para desarrollo y pruebas)
 
 ```bash
 cd Docker
@@ -22,16 +22,30 @@ cd Docker
 # Acceder a: http://localhost:6081/vnc.html (Cliente 1)
 ```
 
-### Opción 2: Despliegue en Linux Nativo (Producción)
+### Opción 2: Despliegue en Máquina Virtual Linux (Con VirtualBox)
+
+Para pruebas en VMs con aislamiento completo:
+
+1. **Preparar VirtualBox** (crear red Host-Only)
+2. **Crear 2 VMs**: Router (Ubuntu Desktop) + Cliente (Ubuntu Desktop)
+3. **Configurar red** en ambas VMs
+4. **Instalar en VM Router**:
+   ```bash
+   cd ~/Captive-Portal
+   sudo bash native/install-router.sh
+   ```
+
+Consulta `notes/SETUP_VM_VIRTUALBOX.md` para instrucciones detalladas paso a paso.
+
+### Opción 3: Despliegue en Linux Nativo (Servidor)
+
+Para entornos de producción o máquinas Linux reales:
 
 ```bash
-cd native
-sudo ./setup-native.sh         # Instalación inicial
-sudo nano /etc/captive-portal/portal.conf  # Configurar interfaces
-sudo ./start-portal.sh         # Iniciar portal
+sudo bash native/install-router.sh
 ```
 
-Consulta `Docker/DESPLIEGUE.md` o `native/README.md` para instrucciones detalladas.
+Este script instala todas las dependencias e inicia el portal automáticamente.
 
 ## Arquitectura del Sistema
 
@@ -763,6 +777,31 @@ docker port c1
    - Almacenamiento de conjunto `ipset` en disco
    - Restauración automática tras reinicio del contenedor
    - Respaldo de `users.json` con versionado
+
+## Scripts de Despliegue
+
+### Docker
+
+- **`Docker/1-prepare.sh`**: Construye las imágenes Docker (router y clientes)
+- **`Docker/2-deploy.sh`**: Despliega los contenedores con configuración de red (porta-lan con 2 clientes)
+
+### Native (Linux)
+
+- **`native/install-router.sh`**: Script de instalación completo que:
+  - Instala dependencias (iptables, dnsmasq, nginx, python3, etc.)
+  - Configura el sistema (IP forwarding, NAT, firewall)
+  - Crea el servicio systemd `portal-cautivo`
+  - Inicia automáticamente todos los servicios
+  - **Uso**: `sudo bash native/install-router.sh`
+
+## Documentación Adicional
+
+- **`notes/SETUP_VM_VIRTUALBOX.md`**: Guía completa paso a paso para configurar 2 máquinas virtuales Ubuntu con VirtualBox (router + cliente) incluyendo:
+  - Creación de red Host-Only
+  - Instalación de Ubuntu Desktop en ambas VMs
+  - Configuración de interfaces de red
+  - Instalación del portal mediante script
+  - Pruebas y troubleshooting
 
 ## Licencia
 

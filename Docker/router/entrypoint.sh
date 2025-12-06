@@ -54,7 +54,15 @@ if ! command -v dnsmasq >/dev/null; then
 fi
 
 mkdir -p /etc/dnsmasq.d
+
+# Extraer rango DHCP de LAN_IP (ej: 10.200.0.254 -> 10.200.0.100,10.200.0.200)
+LAN_PREFIX=$(echo "$LAN_IP" | cut -d. -f1-3)
+DHCP_START="${LAN_PREFIX}.100"
+DHCP_END="${LAN_PREFIX}.200"
+DHCP_LEASE="12h"
+
 cat > /etc/dnsmasq.d/lan.conf <<EOF
+# === DNS Configuration ===
 listen-address=${LAN_IP}
 interface=${LAN_IF}
 bind-interfaces
@@ -63,8 +71,29 @@ no-poll
 domain-needed
 bogus-priv
 cache-size=${DNS_CACHE_SIZE}
+
+# Resolver portal.local al router
 address=/${CERT_CN}/${LAN_IP}
+
+# === DHCP Server ===
+# Entrega IPs automáticas a clientes en la LAN
+dhcp-range=${DHCP_START},${DHCP_END},${DHCP_LEASE}
+
+# Gateway = este router
+dhcp-option=3,${LAN_IP}
+
+# DNS = este router (para capturar consultas)
+dhcp-option=6,${LAN_IP}
+
+# Broadcast address
+dhcp-option=28,${LAN_PREFIX}.255
+
+# Lease file
+dhcp-leasefile=/var/lib/misc/dnsmasq.leases
 EOF
+
+# Crear directorio para leases si no existe
+mkdir -p /var/lib/misc
 
 iptables -C INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT 2>/dev/null || \
 iptables -A INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT
@@ -153,54 +182,66 @@ server {
     listen ${NGINX_HTTP_PORT} default_server;
     server_name _;
 
-    # --- Endpoint explícito de detección manual ---
-    # Si en un cliente abres http://<IP_ROUTER>/captive ves una página clara.
-    location = /captive {
-        default_type text/html;
-        return 200 '<!doctype html><html><head><meta charset="utf-8"><title>Portal cautivo</title></head><body><h1>Red con portal cautivo</h1><p>Tu dispositivo ha detectado un portal cautivo en esta red.</p><p><a href="https://${CERT_CN}/login">Haz clic aquí para iniciar sesión de forma segura</a>.</p></body></html>';
-    }
-
-    # --- Rutas típicas de detección de portal cautivo ---
-    # Android
+    # --- DETECCIÓN AUTOMÁTICA DE PORTAL CAUTIVO ---
+    # Los sistemas operativos hacen peticiones a estas URLs para detectar portales
+    
+    # Android: espera HTTP 204 No Content
     location = /generate_204 {
-        return 302 https://${CERT_CN}/login;
+        return 204;
     }
 
-    # Windows
+    # Windows: espera HTTP 200 con texto específico
     location = /connecttest.txt {
-        return 302 https://${CERT_CN}/login;
+        default_type text/plain;
+        return 200 "Microsoft Connect Test";
     }
 
     location = /ncsi.txt {
-        return 302 https://${CERT_CN}/login;
+        default_type text/plain;
+        return 200 "Microsoft NCSI";
     }
 
-    # Apple
+    # Apple (iOS/macOS): expects HTTP 200 with "Success"
     location = /hotspot-detect.html {
-        return 302 https://${CERT_CN}/login;
+        default_type text/html;
+        return 200 '<html><body>Success</body></html>';
     }
 
-    location = / {
-        # Cualquier otro HTTP (usuario no autenticado, gracias a iptables)
-        # también será redirigido al portal HTTPS.
+    # Linux (GNOME NetworkManager)
+    location = /check_network_status.txt {
+        default_type text/plain;
+        return 200 "NetworkManager";
+    }
+
+    # Detección manual: página clara del portal
+    location = /captive {
+        default_type text/html;
+        return 200 '<!doctype html><html><head><meta charset="utf-8"><title>Portal Cautivo</title><style>body{font-family:sans-serif;text-align:center;padding:50px;background:#f5f5f5}h1{color:#333}p{color:#666}.button{display:inline-block;margin-top:20px;padding:10px 20px;background:#007bff;color:white;text-decoration:none;border-radius:5px}</style></head><body><h1>🔒 Portal Cautivo Detectado</h1><p>Tu dispositivo ha detectado un portal cautivo en esta red.</p><p>Para acceder a Internet, debes autenticarte.</p><p><a href="https://${CERT_CN}/login" class="button">→ Iniciar Sesión</a></p></body></html>';
+    }
+
+    # Redirigir todo lo demás al portal HTTPS
+    location / {
         return 302 https://${CERT_CN}\$request_uri;
     }
 }
 
 server {
-    listen ${NGINX_HTTPS_PORT} ssl;
+    listen ${NGINX_HTTPS_PORT} ssl http2 default_server;
     server_name ${CERT_CN};
 
     ssl_certificate     ${TLS_CERT};
     ssl_certificate_key ${TLS_KEY};
     ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
 
+    # Proxy al backend Python
     location / {
         proxy_pass http://127.0.0.1:${PORTAL_PORT};
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_redirect off;
     }
 }
 EOF

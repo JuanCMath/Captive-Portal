@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+                <html lang="en">
+                <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Markdown Export</title>
+                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.3.0/github-markdown-dark.min.css">
+                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+                <style>
+                    body {
+                        background-color: #0d1117;
+                        color: #c9d1d9;
+                    }
+                    .markdown-body {
+                        box-sizing: border-box;
+                        min-width: 200px;
+                        max-width: 980px;
+                        margin: 0 auto;
+                        padding: 45px;
+                        background-color: #0d1117;
+                        color: #c9d1d9;
+                    }
+                    @media (max-width: 767px) {
+                        .markdown-body {
+                            padding: 15px;
+                        }
+                    }
+                </style>
+                </head>
+                <body>
+                <article class="markdown-body">
+                    <h1>Análisis Técnico del Portal Cautivo</h1>
+<h2>Proyecto de Redes de Computadoras - Universidad de La Habana, Curso 2025</h2>
+<hr>
+<h2>Tabla de Contenidos</h2>
+<ol>
+<li><a href="#introducci%C3%B3n">Introducción</a></li>
+<li><a href="#fundamentos-te%C3%B3ricos">Fundamentos Teóricos</a></li>
+<li><a href="#arquitectura-del-sistema">Arquitectura del Sistema</a></li>
+<li><a href="#an%C3%A1lisis-de-requisitos-m%C3%ADnimos">Análisis de Requisitos Mínimos</a><ul>
+<li>4.1 <a href="#41-endpoint-http-de-inicio-de-sesi%C3%B3n">Endpoint HTTP de Inicio de Sesión</a></li>
+<li>4.2 <a href="#42-bloqueo-de-enrutamiento">Bloqueo de Enrutamiento</a></li>
+<li>4.3 <a href="#43-mecanismo-de-definici%C3%B3n-de-cuentas-de-usuario">Mecanismo de Definición de Cuentas de Usuario</a></li>
+<li>4.4 <a href="#44-manejo-de-usuarios-concurrentes">Manejo de Usuarios Concurrentes</a></li>
+</ul>
+</li>
+<li><a href="#an%C3%A1lisis-de-requisitos-extra">Análisis de Requisitos Extra</a><ul>
+<li>5.1 <a href="#51-detecci%C3%B3n-autom%C3%A1tica-del-portal-cautivo">Detección Automática del Portal Cautivo</a></li>
+<li>5.2 <a href="#52-capa-de-seguridad-https">Capa de Seguridad HTTPS</a></li>
+<li>5.3 <a href="#53-control-de-suplantaci%C3%B3n-de-ip">Control de Suplantación de IP</a></li>
+<li>5.4 <a href="#54-enmascaramiento-ip-nat">Enmascaramiento IP (NAT)</a></li>
+<li>5.5 <a href="#55-experiencia-de-usuario-y-dise%C3%B1o">Experiencia de Usuario y Diseño</a></li>
+</ul>
+</li>
+<li><a href="#flujo-de-funcionamiento">Flujo de Funcionamiento</a></li>
+<li><a href="#estructura-de-archivos">Estructura de Archivos</a></li>
+<li><a href="#conclusiones">Conclusiones</a></li>
+</ol>
+<hr>
+<h2>Introducción</h2>
+<p>Un <strong>portal cautivo</strong> (<em>captive portal</em>) es una técnica de control de acceso a redes que intercepta el tráfico de dispositivos no autenticados y los redirige hacia una página de autenticación antes de permitirles acceso a recursos externos (típicamente Internet). Esta tecnología es ampliamente utilizada en redes Wi-Fi públicas de aeropuertos, hoteles, universidades y espacios comerciales.</p>
+<p>Este documento presenta un análisis académico exhaustivo de la implementación de un portal cautivo desarrollado como proyecto de la asignatura Redes de Computadoras. La solución está construida utilizando exclusivamente la biblioteca estándar de Python y herramientas de línea de comandos del sistema operativo Linux, específicamente <code>iptables</code> e <code>ipset</code> para el control de firewall.</p>
+<h3>Objetivos del Proyecto</h3>
+<p>El proyecto busca demostrar comprensión práctica de:</p>
+<ul>
+<li>Configuración de reglas de firewall con <code>iptables</code></li>
+<li>Gestión de conjuntos de IPs dinámicos con <code>ipset</code></li>
+<li>Implementación de servidores HTTP desde cero</li>
+<li>Arquitectura de red con NAT y enrutamiento</li>
+<li>Programación concurrente para manejo de múltiples clientes</li>
+</ul>
+<hr>
+<h2>Fundamentos Teóricos</h2>
+<h3>¿Qué es iptables?</h3>
+<p><code>iptables</code> es el sistema de filtrado de paquetes del kernel Linux. Opera mediante <strong>tablas</strong> que contienen <strong>cadenas</strong> de <strong>reglas</strong>. Las tablas principales son:</p>
+<table>
+<thead>
+<tr>
+<th>Tabla</th>
+<th>Propósito</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>filter</code></td>
+<td>Filtrado de paquetes (ACCEPT, DROP, REJECT)</td>
+</tr>
+<tr>
+<td><code>nat</code></td>
+<td>Traducción de direcciones de red (DNAT, SNAT, MASQUERADE)</td>
+</tr>
+<tr>
+<td><code>mangle</code></td>
+<td>Modificación de paquetes</td>
+</tr>
+</tbody></table>
+<p>Las cadenas predefinidas determinan cuándo se evalúan las reglas:</p>
+<ul>
+<li><strong>PREROUTING</strong>: Antes de decidir el enrutamiento (tabla nat)</li>
+<li><strong>INPUT</strong>: Paquetes destinados al host local (tabla filter)</li>
+<li><strong>FORWARD</strong>: Paquetes que atraviesan el host (tabla filter)</li>
+<li><strong>OUTPUT</strong>: Paquetes generados localmente (tabla filter)</li>
+<li><strong>POSTROUTING</strong>: Después del enrutamiento (tabla nat)</li>
+</ul>
+<h3>¿Qué es ipset?</h3>
+<p><code>ipset</code> es una extensión del kernel que permite definir conjuntos de direcciones IP, redes o puertos que pueden ser referenciados eficientemente desde reglas de <code>iptables</code>. Los principales tipos de conjuntos son:</p>
+<ul>
+<li><code>hash:ip</code> - Conjunto de direcciones IP individuales</li>
+<li><code>hash:net</code> - Conjunto de subredes</li>
+<li><code>hash:ip,port</code> - Combinaciones IP-puerto</li>
+</ul>
+<p>La ventaja de <code>ipset</code> sobre múltiples reglas de <code>iptables</code> es su eficiencia: la búsqueda en un conjunto hash es O(1), mientras que múltiples reglas son O(n).</p>
+<h3>NAT (Network Address Translation)</h3>
+<p>NAT permite que múltiples dispositivos de una red privada compartan una única IP pública. En este proyecto se utiliza <strong>MASQUERADE</strong>, una forma de Source NAT (SNAT) que automáticamente utiliza la IP de la interfaz de salida:</p>
+<pre><code class="hljs plaintext">Red LAN (10.200.0.0/24) → Router → Internet
+   IP privada          MASQUERADE   IP pública</code></pre><hr>
+<h2>Arquitectura del Sistema</h2>
+<p>La solución se implementa mediante contenedores Docker que simulan una topología de red con:</p>
+<pre><code class="hljs plaintext">┌─────────────────────────────────────────────────────────────────┐
+│                        Internet (WAN)                           │
+│                           eth0                                  │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                    ┌────────┴────────┐
+                    │     ROUTER      │
+                    │  (Portal)       │
+                    │                 │
+                    │  - iptables     │
+                    │  - ipset        │
+                    │  - dnsmasq      │
+                    │  - nginx        │
+                    │  - Python HTTP  │
+                    └────────┬────────┘
+                             │ eth1 (10.200.0.254)
+                             │
+              ┌──────────────┴──────────────┐
+              │        LAN (lan0)           │
+              │     10.200.0.0/24           │
+              ├──────────────┬──────────────┤
+              │              │              │
+         ┌────┴────┐    ┌────┴────┐    ┌────┴────┐
+         │ Cliente │    │ Cliente │    │ Cliente │
+         │   .1    │    │   .2    │    │   .n    │
+         └─────────┘    └─────────┘    └─────────┘</code></pre><h3>Componentes del Sistema</h3>
+<table>
+<thead>
+<tr>
+<th>Componente</th>
+<th>Tecnología</th>
+<th>Función</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Router</td>
+<td>Debian + iptables/ipset</td>
+<td>Gateway, firewall, control de acceso</td>
+</tr>
+<tr>
+<td>DNS</td>
+<td>dnsmasq</td>
+<td>Resolución de nombres local</td>
+</tr>
+<tr>
+<td>Proxy TLS</td>
+<td>nginx</td>
+<td>Terminación HTTPS, redirección</td>
+</tr>
+<tr>
+<td>Backend</td>
+<td>Python HTTP Server</td>
+<td>Autenticación, gestión de sesiones</td>
+</tr>
+<tr>
+<td>Clientes</td>
+<td>Debian + Chromium</td>
+<td>Simulación de usuarios</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>Análisis de Requisitos Mínimos</h2>
+<h3>4.1 Endpoint HTTP de Inicio de Sesión</h3>
+<p><strong>Requisito</strong>: <em>"Endpoint HTTP de inicio de sesión en la red"</em></p>
+<h4>Implementación</h4>
+<p>El endpoint de login se implementa en el archivo <code>Docker/router/app/portal.py</code> mediante la función <code>process_login()</code>:</p>
+<pre><code class="hljs python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">process_login</span>(<span class="hljs-params">client_ip: <span class="hljs-built_in">str</span>, form_data: <span class="hljs-type">Dict</span>[<span class="hljs-built_in">str</span>, <span class="hljs-type">List</span>[<span class="hljs-built_in">str</span>]]</span>) -&gt; <span class="hljs-type">Tuple</span>[<span class="hljs-built_in">int</span>, <span class="hljs-type">Dict</span>[<span class="hljs-built_in">str</span>, <span class="hljs-built_in">str</span>], <span class="hljs-built_in">str</span>]:
+    <span class="hljs-string">"""
+    Procesa un POST /login.
+    Devuelve (status_code, headers, body_html).
+    """</span>
+    username = (form_data.get(<span class="hljs-string">"username"</span>) <span class="hljs-keyword">or</span> [<span class="hljs-string">""</span>])[<span class="hljs-number">0</span>]
+    password = (form_data.get(<span class="hljs-string">"password"</span>) <span class="hljs-keyword">or</span> [<span class="hljs-string">""</span>])[<span class="hljs-number">0</span>]
+
+    _, mapping = load_users()
+    stored = mapping.get(username)
+
+    <span class="hljs-keyword">if</span> stored <span class="hljs-keyword">is</span> <span class="hljs-literal">None</span> <span class="hljs-keyword">or</span> stored != password:
+        body = render_login_page(
+            client_ip=client_ip,
+            auth_timeout=AUTH_TIMEOUT,
+            error=<span class="hljs-string">"Credenciales inválidas. Verifica usuario y contraseña."</span>,
+        )
+        <span class="hljs-keyword">return</span> <span class="hljs-number">401</span>, {}, body
+
+    ok = add_to_ipset(client_ip)
+    <span class="hljs-comment"># ... manejo de éxito/error</span></code></pre><h4>Flujo del Proceso de Login</h4>
+<ol>
+<li><strong>Cliente envía POST /login</strong> con <code>username</code> y <code>password</code> en formato <code>application/x-www-form-urlencoded</code></li>
+<li><strong>Servidor extrae credenciales</strong> mediante <code>_parse_post_form()</code> en <code>main.py</code>:<pre><code class="hljs python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_parse_post_form</span>(<span class="hljs-params">self</span>) -&gt; <span class="hljs-built_in">dict</span>:
+    length = <span class="hljs-built_in">int</span>(self.headers.get(<span class="hljs-string">"Content-Length"</span>, <span class="hljs-string">"0"</span>) <span class="hljs-keyword">or</span> <span class="hljs-string">"0"</span>)
+    raw = self.rfile.read(length).decode(<span class="hljs-string">"utf-8"</span>, errors=<span class="hljs-string">"ignore"</span>)
+    <span class="hljs-keyword">return</span> parse_qs(raw)</code></pre></li>
+<li><strong>Validación contra base de datos</strong> (archivo JSON o variable de entorno)</li>
+<li><strong>Si credenciales válidas</strong>: Se añade la IP al conjunto <code>ipset authed</code></li>
+<li><strong>Redirección HTTP 302</strong> a <code>/status</code> para confirmar autenticación</li>
+</ol>
+<h4>Rutas HTTP Disponibles</h4>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Ruta</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>GET</td>
+<td><code>/</code> o <code>/login</code></td>
+<td>Formulario de inicio de sesión</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/login</code></td>
+<td>Procesar autenticación</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/status</code></td>
+<td>Estado de la sesión (HTML)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/status.json</code></td>
+<td>Estado de la sesión (JSON para AJAX)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/admin/users</code></td>
+<td>Panel de administración</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/admin/users/create</code></td>
+<td>Crear usuario</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/admin/users/delete</code></td>
+<td>Eliminar usuario</td>
+</tr>
+</tbody></table>
+<h4>Fundamento Técnico</h4>
+<p>El servidor HTTP se construye extendiendo <code>BaseHTTPRequestHandler</code> de la biblioteca estándar:</p>
+<pre><code class="hljs python"><span class="hljs-keyword">class</span> <span class="hljs-title class_">PortalRequestHandler</span>(<span class="hljs-title class_ inherited__">BaseHTTPRequestHandler</span>):
+    server_version = <span class="hljs-string">"CaptivePortal/1.0"</span>
+
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">do_GET</span>(<span class="hljs-params">self</span>) -&gt; <span class="hljs-literal">None</span>:
+        <span class="hljs-comment"># Manejo de peticiones GET</span>
+        
+    <span class="hljs-keyword">def</span> <span class="hljs-title function_">do_POST</span>(<span class="hljs-params">self</span>) -&gt; <span class="hljs-literal">None</span>:
+        <span class="hljs-comment"># Manejo de peticiones POST</span></code></pre><p>Este enfoque cumple con el requisito de no utilizar bibliotecas externas, implementando el protocolo HTTP/1.1 mediante las clases proporcionadas por Python.</p>
+<hr>
+<h3>4.2 Bloqueo de Enrutamiento</h3>
+<p><strong>Requisito</strong>: <em>"Bloqueo de cualquier tipo de enrutamiento hasta no haber iniciado sesión en la red"</em></p>
+<h4>Implementación</h4>
+<p>El bloqueo se implementa mediante una combinación de <code>ipset</code> e <code>iptables</code> en el script <code>Docker/router/entrypoint.sh</code>:</p>
+<h5>Paso 1: Creación del Conjunto ipset</h5>
+<pre><code class="hljs bash">ipset create authed <span class="hljs-built_in">hash</span>:ip <span class="hljs-built_in">timeout</span> <span class="hljs-string">"<span class="hljs-variable">${AUTH_TIMEOUT}</span>"</span> -exist</code></pre><p>Este comando crea un conjunto de tipo <code>hash:ip</code> llamado <code>authed</code> donde:</p>
+<ul>
+<li><code>hash:ip</code>: Almacena direcciones IPv4 individuales</li>
+<li><code>timeout ${AUTH_TIMEOUT}</code>: Cada entrada expira automáticamente después de N segundos (por defecto 3600)</li>
+<li><code>-exist</code>: No falla si el conjunto ya existe</li>
+</ul>
+<h5>Paso 2: Reglas de Redirección (Tabla NAT)</h5>
+<pre><code class="hljs bash"><span class="hljs-comment"># Crear cadena personalizada para redirección</span>
+iptables -t nat -N CP_REDIRECT 2&gt;/dev/null || <span class="hljs-literal">true</span>
+
+<span class="hljs-comment"># Redirigir HTTP de no autenticados al portal</span>
+iptables -t nat -A PREROUTING -i <span class="hljs-string">"<span class="hljs-variable">$LAN_IF</span>"</span> -p tcp --dport 80 \
+  -m <span class="hljs-built_in">set</span> ! --match-set authed src -j CP_REDIRECT
+
+<span class="hljs-comment"># CP_REDIRECT → DNAT hacia nginx local</span>
+iptables -t nat -A CP_REDIRECT -p tcp -j DNAT --to-destination <span class="hljs-string">"<span class="hljs-variable">${LAN_IP}</span>:<span class="hljs-variable">${NGINX_HTTP_PORT}</span>"</span></code></pre><p><strong>Explicación de la regla</strong>:</p>
+<ul>
+<li><code>-t nat -A PREROUTING</code>: Aplica antes del enrutamiento en tabla NAT</li>
+<li><code>-i "$LAN_IF"</code>: Solo paquetes entrando por interfaz LAN</li>
+<li><code>-p tcp --dport 80</code>: Solo tráfico TCP destinado al puerto 80</li>
+<li><code>-m set ! --match-set authed src</code>: <strong>Si la IP origen NO está en el conjunto <code>authed</code></strong></li>
+<li><code>-j CP_REDIRECT</code>: Saltar a cadena personalizada que hace DNAT</li>
+</ul>
+<h5>Paso 3: Reglas de Forwarding (Tabla Filter)</h5>
+<pre><code class="hljs bash"><span class="hljs-comment"># AUTENTICADOS → Permitir acceso a Internet</span>
+iptables -I FORWARD 1 -i <span class="hljs-string">"<span class="hljs-variable">$LAN_IF</span>"</span> -o <span class="hljs-string">"<span class="hljs-variable">$UPLINK_IF</span>"</span> -m <span class="hljs-built_in">set</span> --match-set authed src -j ACCEPT
+
+<span class="hljs-comment"># NO autenticados → Bloquear HTTPS</span>
+iptables -A FORWARD -i <span class="hljs-string">"<span class="hljs-variable">$LAN_IF</span>"</span> -o <span class="hljs-string">"<span class="hljs-variable">$UPLINK_IF</span>"</span> -p tcp --dport 443 \
+  -m <span class="hljs-built_in">set</span> ! --match-set authed src -j REJECT --reject-with tcp-reset
+
+<span class="hljs-comment"># NO autenticados → Bloquear todo lo demás</span>
+iptables -A FORWARD -i <span class="hljs-string">"<span class="hljs-variable">$LAN_IF</span>"</span> -o <span class="hljs-string">"<span class="hljs-variable">$UPLINK_IF</span>"</span> -j REJECT</code></pre><h4>Diagrama de Flujo de Paquetes</h4>
+<pre><code class="hljs plaintext">         Paquete desde Cliente LAN
+                    │
+                    ▼
+        ┌───────────────────────┐
+        │ ¿IP en conjunto       │
+        │     "authed"?         │
+        └───────────┬───────────┘
+               ┌────┴────┐
+               │         │
+              SÍ        NO
+               │         │
+               ▼         ▼
+        ┌──────────┐  ┌──────────────┐
+        │ ACCEPT   │  │ ¿Puerto 80?  │
+        │ Forward  │  └──────┬───────┘
+        │ a WAN    │     ┌───┴───┐
+        └──────────┘    SÍ      NO
+                         │       │
+                         ▼       ▼
+                  ┌─────────┐ ┌────────┐
+                  │ DNAT a  │ │ REJECT │
+                  │ Portal  │ │        │
+                  └─────────┘ └────────┘</code></pre><h5>Autorización de IP tras Login Exitoso</h5>
+<p>Cuando un usuario se autentica correctamente, la función <code>add_to_ipset()</code> en <code>ipset_utils.py</code> registra su IP:</p>
+<pre><code class="hljs python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">add_to_ipset</span>(<span class="hljs-params">ip: <span class="hljs-built_in">str</span></span>) -&gt; <span class="hljs-built_in">bool</span>:
+    <span class="hljs-string">"""Añade la IP al conjunto 'authed' con timeout."""</span>
+    <span class="hljs-keyword">try</span>:
+        subprocess.run(
+            [<span class="hljs-string">"ipset"</span>, <span class="hljs-string">"add"</span>, <span class="hljs-string">"authed"</span>, ip, <span class="hljs-string">"timeout"</span>, <span class="hljs-built_in">str</span>(AUTH_TIMEOUT), <span class="hljs-string">"-exist"</span>],
+            check=<span class="hljs-literal">True</span>,
+        )
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">True</span>
+    <span class="hljs-keyword">except</span> Exception <span class="hljs-keyword">as</span> e:
+        <span class="hljs-built_in">print</span>(<span class="hljs-string">f"Error añadiendo <span class="hljs-subst">{ip}</span> a ipset: <span class="hljs-subst">{e}</span>"</span>)
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">False</span></code></pre><p><strong>Parámetros del comando</strong>:</p>
+<ul>
+<li><code>add authed ip</code>: Añade la IP al conjunto <code>authed</code></li>
+<li><code>timeout N</code>: Duración de la entrada (sobrescribe default del conjunto)</li>
+<li><code>-exist</code>: No falla si la IP ya existe (renueva el timeout)</li>
+</ul>
+<hr>
+<h3>4.3 Mecanismo de Definición de Cuentas de Usuario</h3>
+<p><strong>Requisito</strong>: <em>"Mecanismo de definición de cuentas de usuario"</em></p>
+<h4>Implementación</h4>
+<p>El sistema de usuarios se implementa en <code>Docker/router/app/users.py</code> con almacenamiento en JSON:</p>
+<h5>Estructura de Datos</h5>
+<pre><code class="hljs json"><span class="hljs-punctuation">[</span>
+  <span class="hljs-punctuation">{</span><span class="hljs-attr">"u"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"admin"</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">"p"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"admin"</span><span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-punctuation">{</span><span class="hljs-attr">"u"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"estudiante1"</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">"p"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"clave123"</span><span class="hljs-punctuation">}</span><span class="hljs-punctuation">,</span>
+  <span class="hljs-punctuation">{</span><span class="hljs-attr">"u"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"invitado"</span><span class="hljs-punctuation">,</span> <span class="hljs-attr">"p"</span><span class="hljs-punctuation">:</span> <span class="hljs-string">"wifi2025"</span><span class="hljs-punctuation">}</span>
+<span class="hljs-punctuation">]</span></code></pre><h5>Fuentes de Configuración (Prioridad)</h5>
+<ol>
+<li><strong>Variable de entorno <code>USERS_JSON</code></strong>: Permite inyectar usuarios sin modificar archivos</li>
+<li><strong>Archivo <code>users.json</code></strong>: Almacenamiento persistente</li>
+<li><strong>Fallback</strong>: Usuario <code>admin/admin</code> si no hay otras fuentes</li>
+</ol>
+<pre><code class="hljs python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">load_users</span>() -&gt; <span class="hljs-type">Tuple</span>[<span class="hljs-type">List</span>[<span class="hljs-type">Dict</span>[<span class="hljs-built_in">str</span>, <span class="hljs-built_in">str</span>]], <span class="hljs-type">Dict</span>[<span class="hljs-built_in">str</span>, <span class="hljs-built_in">str</span>]]:
+    <span class="hljs-string">"""
+    Carga usuarios desde:
+    1) Variable de entorno USERS_JSON (si existe)
+    2) Archivo USERS_FILE
+    3) Fallback: admin/admin
+    """</span>
+    data = _load_from_env()
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> data:
+        <span class="hljs-keyword">if</span> USERS_FILE.exists():
+            <span class="hljs-keyword">try</span>:
+                data = json.loads(USERS_FILE.read_text(encoding=<span class="hljs-string">"utf-8"</span>))
+            <span class="hljs-keyword">except</span> json.JSONDecodeError:
+                <span class="hljs-built_in">print</span>(<span class="hljs-string">"users.json mal formado, usando fallback."</span>)
+                data = []
+        <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> data:
+            data = [{<span class="hljs-string">"u"</span>: <span class="hljs-string">"admin"</span>, <span class="hljs-string">"p"</span>: <span class="hljs-string">"admin"</span>}]
+    <span class="hljs-comment"># ... procesamiento</span></code></pre><h5>Operaciones CRUD</h5>
+<p><strong>Crear Usuario</strong>:</p>
+<pre><code class="hljs python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">create_user</span>(<span class="hljs-params">username: <span class="hljs-built_in">str</span>, password: <span class="hljs-built_in">str</span></span>) -&gt; <span class="hljs-type">Tuple</span>[<span class="hljs-built_in">bool</span>, <span class="hljs-built_in">str</span>]:
+    username = username.strip()
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> username <span class="hljs-keyword">or</span> <span class="hljs-string">" "</span> <span class="hljs-keyword">in</span> username:
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">False</span>, <span class="hljs-string">"El nombre de usuario no puede estar vacío ni contener espacios."</span>
+
+    users, mapping = load_users()
+    <span class="hljs-keyword">if</span> username <span class="hljs-keyword">in</span> mapping:
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">False</span>, <span class="hljs-string">f"El usuario '<span class="hljs-subst">{username}</span>' ya existe."</span>
+
+    users.append({<span class="hljs-string">"u"</span>: username, <span class="hljs-string">"p"</span>: password})
+    save_users(users)
+    <span class="hljs-keyword">return</span> <span class="hljs-literal">True</span>, <span class="hljs-string">f"Usuario '<span class="hljs-subst">{username}</span>' creado correctamente."</span></code></pre><p><strong>Eliminar Usuario</strong>:</p>
+<pre><code class="hljs python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">delete_user</span>(<span class="hljs-params">username: <span class="hljs-built_in">str</span></span>) -&gt; <span class="hljs-type">Tuple</span>[<span class="hljs-built_in">bool</span>, <span class="hljs-built_in">str</span>]:
+    username = username.strip()
+    users, mapping = load_users()
+
+    <span class="hljs-keyword">if</span> username == <span class="hljs-string">"admin"</span>:
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">False</span>, <span class="hljs-string">"No se puede eliminar la cuenta 'admin'."</span>
+
+    <span class="hljs-keyword">if</span> username <span class="hljs-keyword">not</span> <span class="hljs-keyword">in</span> mapping:
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">False</span>, <span class="hljs-string">f"El usuario '<span class="hljs-subst">{username}</span>' no existe."</span>
+
+    new_users = [u <span class="hljs-keyword">for</span> u <span class="hljs-keyword">in</span> users <span class="hljs-keyword">if</span> u.get(<span class="hljs-string">"u"</span>) != username]
+    save_users(new_users)
+    <span class="hljs-keyword">return</span> <span class="hljs-literal">True</span>, <span class="hljs-string">f"Usuario '<span class="hljs-subst">{username}</span>' eliminado correctamente."</span></code></pre><h5>Panel de Administración</h5>
+<p>El panel web (<code>/admin/users</code>) permite gestión visual de usuarios con autenticación HTTP Basic:</p>
+<pre><code class="hljs python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">_require_admin</span>(<span class="hljs-params">self</span>) -&gt; <span class="hljs-built_in">str</span> | <span class="hljs-literal">None</span>:
+    auth_header = self.headers.get(<span class="hljs-string">"Authorization"</span>)
+    creds = auth.parse_basic_auth(auth_header)
+    <span class="hljs-keyword">if</span> <span class="hljs-keyword">not</span> creds <span class="hljs-keyword">or</span> <span class="hljs-keyword">not</span> auth.is_admin(*creds):
+        self.send_response(<span class="hljs-number">401</span>)
+        self.send_header(<span class="hljs-string">"WWW-Authenticate"</span>, <span class="hljs-string">'Basic realm="Admin"'</span>)
+        <span class="hljs-comment"># ...</span></code></pre><p>La autenticación Basic codifica <code>usuario:contraseña</code> en Base64:</p>
+<pre><code class="hljs python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">parse_basic_auth</span>(<span class="hljs-params">header_value: <span class="hljs-type">Optional</span>[<span class="hljs-built_in">str</span>]</span>) -&gt; <span class="hljs-type">Optional</span>[<span class="hljs-type">Tuple</span>[<span class="hljs-built_in">str</span>, <span class="hljs-built_in">str</span>]]:
+    <span class="hljs-comment"># "Basic dXN1YXJpbzpwYXNzd29yZA==" → ("usuario", "password")</span>
+    b64_part = header_value.split(<span class="hljs-string">" "</span>, <span class="hljs-number">1</span>)[<span class="hljs-number">1</span>].strip()
+    decoded = base64.b64decode(b64_part).decode(<span class="hljs-string">"utf-8"</span>)
+    username, password = decoded.split(<span class="hljs-string">":"</span>, <span class="hljs-number">1</span>)
+    <span class="hljs-keyword">return</span> username, password</code></pre><hr>
+<h3>4.4 Manejo de Usuarios Concurrentes</h3>
+<p><strong>Requisito</strong>: <em>"Empleo de hilos y/o procesos para el manejo de varios usuarios concurrentes"</em></p>
+<h4>Implementación</h4>
+<p>La concurrencia se logra mediante <code>ThreadingMixIn</code> de la biblioteca estándar:</p>
+<pre><code class="hljs python"><span class="hljs-keyword">from</span> http.server <span class="hljs-keyword">import</span> BaseHTTPRequestHandler, HTTPServer
+<span class="hljs-keyword">from</span> socketserver <span class="hljs-keyword">import</span> ThreadingMixIn
+
+<span class="hljs-keyword">class</span> <span class="hljs-title class_">ThreadingHTTPServer</span>(ThreadingMixIn, HTTPServer):
+    daemon_threads = <span class="hljs-literal">True</span></code></pre><h5>Funcionamiento del ThreadingMixIn</h5>
+<p>Esta clase utiliza el patrón de diseño <strong>Mixin</strong> para extender <code>HTTPServer</code> con capacidades de threading:</p>
+<ol>
+<li><p><strong>Sin ThreadingMixIn</strong> (comportamiento default):</p>
+<pre><code class="hljs plaintext">Cliente A ──► Servidor procesa A ──► Responde A ──► Servidor libre
+Cliente B ──► [ESPERA] ──► Servidor procesa B ──► Responde B</code></pre></li>
+<li><p><strong>Con ThreadingMixIn</strong>:</p>
+<pre><code class="hljs plaintext">Cliente A ──┬──► Thread 1: procesa A ──► Responde A
+            │
+Cliente B ──┴──► Thread 2: procesa B ──► Responde B
+            │
+Cliente C ──────► Thread 3: procesa C ──► Responde C</code></pre></li>
+</ol>
+<h5>Código del Servidor</h5>
+<pre><code class="hljs python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">run_server</span>(<span class="hljs-params">port: <span class="hljs-built_in">int</span></span>) -&gt; <span class="hljs-literal">None</span>:
+    addr = (<span class="hljs-string">"0.0.0.0"</span>, port)
+    httpd = ThreadingHTTPServer(addr, PortalRequestHandler)
+    log(<span class="hljs-string">f"Servidor HTTP escuchando en puerto <span class="hljs-subst">{port}</span>"</span>)
+    <span class="hljs-keyword">try</span>:
+        httpd.serve_forever()
+    <span class="hljs-keyword">except</span> KeyboardInterrupt:
+        log(<span class="hljs-string">"Servidor detenido por KeyboardInterrupt"</span>)
+    <span class="hljs-keyword">finally</span>:
+        httpd.server_close()</code></pre><h5>Características de <code>daemon_threads = True</code></h5>
+<ul>
+<li>Los hilos se marcan como <em>daemon</em>, lo que significa que <strong>no bloquean la terminación del programa principal</strong></li>
+<li>Cuando el proceso padre termina (ej: Ctrl+C), los hilos daemon se terminan automáticamente</li>
+<li>Ideal para servidores donde queremos shutdown limpio sin esperar conexiones pendientes</li>
+</ul>
+<h5>Diagrama de Arquitectura Concurrente</h5>
+<pre><code class="hljs plaintext">                    ┌─────────────────────────────────────┐
+                    │         ThreadingHTTPServer         │
+                    │                                     │
+                    │  ┌─────────┐   accept()             │
+     Conexión ────► │  │ Socket  │ ──────────┐            │
+                    │  │ Listen  │           │            │
+                    │  └─────────┘           ▼            │
+                    │              ┌──────────────────┐   │
+                    │              │   Thread Pool    │   │
+                    │              │  ┌────┬────┬───┐ │   │
+                    │              │  │ T1 │ T2 │...│ │   │
+                    │              │  └────┴────┴───┘ │   │
+                    │              └──────────────────┘   │
+                    └─────────────────────────────────────┘
+                                        │
+                                        ▼
+                              ┌──────────────────┐
+                              │ PortalRequest    │
+                              │    Handler       │
+                              │                  │
+                              │ - do_GET()       │
+                              │ - do_POST()      │
+                              │ - do_HEAD()      │
+                              └──────────────────┘</code></pre><h5>Ventajas de esta Implementación</h5>
+<ol>
+<li><strong>Simplicidad</strong>: Una sola línea (<code>ThreadingMixIn</code>) habilita concurrencia</li>
+<li><strong>Sin dependencias</strong>: Usa solo biblioteca estándar</li>
+<li><strong>Escalabilidad moderada</strong>: Adecuado para decenas de clientes simultáneos</li>
+<li><strong>Thread-safety en ipset</strong>: Los comandos <code>ipset add/test</code> son atómicos a nivel kernel</li>
+</ol>
+<hr>
+<h2>Análisis de Requisitos Extra</h2>
+<h3>5.1 Detección Automática del Portal Cautivo</h3>
+<p><strong>Requisito Extra</strong>: <em>"Detección automática del enlace HTTP del portal cautivo en la red" (1 pto)</em></p>
+<h4>Implementación</h4>
+<p>Los sistemas operativos modernos detectan portales cautivos mediante peticiones HTTP a URLs específicas. El proyecto implementa respuestas para las principales plataformas en la configuración de nginx:</p>
+<pre><code class="hljs plaintext"># Android
+location = /generate_204 {
+    return 302 https://${CERT_CN}/login;
+}
+
+# Windows
+location = /connecttest.txt {
+    return 302 https://${CERT_CN}/login;
+}
+location = /ncsi.txt {
+    return 302 https://${CERT_CN}/login;
+}
+
+# Apple (iOS/macOS)
+location = /hotspot-detect.html {
+    return 302 https://${CERT_CN}/login;
+}</code></pre><h4>Mecanismo de Detección por Sistema Operativo</h4>
+<table>
+<thead>
+<tr>
+<th>SO</th>
+<th>URL de Prueba</th>
+<th>Respuesta Esperada</th>
+<th>Comportamiento</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Android</td>
+<td><code>http://connectivitycheck.gstatic.com/generate_204</code></td>
+<td>HTTP 204</td>
+<td>Si recibe otra cosa, abre navegador cautivo</td>
+</tr>
+<tr>
+<td>Windows</td>
+<td><code>http://www.msftconnecttest.com/connecttest.txt</code></td>
+<td><code>Microsoft Connect Test</code></td>
+<td>Si falla, muestra notificación de red</td>
+</tr>
+<tr>
+<td>iOS/macOS</td>
+<td><code>http://captive.apple.com/hotspot-detect.html</code></td>
+<td><code>&lt;HTML&gt;&lt;HEAD&gt;&lt;TITLE&gt;Success&lt;/TITLE&gt;&lt;/HEAD&gt;&lt;BODY&gt;Success&lt;/BODY&gt;&lt;/HTML&gt;</code></td>
+<td>Si difiere, abre CNA (Captive Network Assistant)</td>
+</tr>
+</tbody></table>
+<h4>Flujo de Detección</h4>
+<pre><code class="hljs plaintext">┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│   Cliente   │         │   Router    │         │  Internet   │
+│  (Android)  │         │   (nginx)   │         │             │
+└──────┬──────┘         └──────┬──────┘         └──────┬──────┘
+       │                       │                       │
+       │  GET /generate_204    │                       │
+       │──────────────────────►│                       │
+       │                       │                       │
+       │  (IP no autenticada)  │                       │
+       │  iptables DNAT ───────┤                       │
+       │                       │                       │
+       │   302 → portal.local  │                       │
+       │◄──────────────────────│                       │
+       │                       │                       │
+       │  [Abre navegador      │                       │
+       │   cautivo]            │                       │
+       │                       │                       │</code></pre><h4>Endpoint Adicional de Detección Manual</h4>
+<pre><code class="hljs plaintext">location = /captive {
+    default_type text/html;
+    return 200 '&lt;!doctype html&gt;...
+      &lt;a href="https://${CERT_CN}/login"&gt;Haz clic aquí para iniciar sesión&lt;/a&gt;...';
+}</code></pre><p>Este endpoint permite verificación manual navegando a <code>http://&lt;IP_ROUTER&gt;/captive</code>.</p>
+<hr>
+<h3>5.2 Capa de Seguridad HTTPS</h3>
+<p><strong>Requisito Extra</strong>: <em>"Capa de seguridad HTTPS válida, sobre la URL del portal" (0.5 pts)</em></p>
+<h4>Implementación</h4>
+<p>El sistema genera un certificado TLS autofirmado y configura nginx como proxy inverso HTTPS:</p>
+<h5>Generación de Certificado</h5>
+<pre><code class="hljs bash">TLS_KEY=<span class="hljs-string">"/etc/ssl/private/portal.key"</span>
+TLS_CERT=<span class="hljs-string">"/etc/ssl/certs/portal.crt"</span>
+
+<span class="hljs-keyword">if</span> [[ ! -f <span class="hljs-string">"<span class="hljs-variable">$TLS_KEY</span>"</span> || ! -f <span class="hljs-string">"<span class="hljs-variable">$TLS_CERT</span>"</span> ]]; <span class="hljs-keyword">then</span>
+  openssl req -x509 -nodes -newkey rsa:2048 \
+    -keyout <span class="hljs-string">"<span class="hljs-variable">$TLS_KEY</span>"</span> \
+    -out <span class="hljs-string">"<span class="hljs-variable">$TLS_CERT</span>"</span> \
+    -days 365 \
+    -subj <span class="hljs-string">"/CN=<span class="hljs-variable">${CERT_CN}</span>"</span>
+<span class="hljs-keyword">fi</span></code></pre><p><strong>Parámetros OpenSSL</strong>:</p>
+<ul>
+<li><code>-x509</code>: Genera certificado autofirmado (no CSR)</li>
+<li><code>-nodes</code>: No cifrar clave privada (sin passphrase)</li>
+<li><code>-newkey rsa:2048</code>: Genera nueva clave RSA de 2048 bits</li>
+<li><code>-days 365</code>: Validez de un año</li>
+<li><code>-subj "/CN=portal.local"</code>: Common Name para el certificado</li>
+</ul>
+<h5>Configuración nginx TLS</h5>
+<pre><code class="hljs plaintext">server {
+    listen 443 ssl;
+    server_name portal.local;
+
+    ssl_certificate     /etc/ssl/certs/portal.crt;
+    ssl_certificate_key /etc/ssl/private/portal.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}</code></pre><h5>Resolución DNS Local</h5>
+<p>dnsmasq resuelve <code>portal.local</code> a la IP del router:</p>
+<pre><code class="hljs bash"><span class="hljs-comment"># /etc/dnsmasq.d/lan.conf</span>
+address=/<span class="hljs-variable">${CERT_CN}</span>/<span class="hljs-variable">${LAN_IP}</span>
+<span class="hljs-comment"># Equivale a: address=/portal.local/10.200.0.254</span></code></pre><h4>Flujo HTTPS</h4>
+<pre><code class="hljs plaintext">┌─────────────┐       ┌─────────────┐       ┌─────────────┐
+│   Cliente   │       │    nginx    │       │   Python    │
+│             │       │  (TLS 443)  │       │   Backend   │
+└──────┬──────┘       └──────┬──────┘       └──────┬──────┘
+       │                     │                     │
+       │ TLS Handshake       │                     │
+       │─────────────────────►                     │
+       │ (Cert: portal.local)│                     │
+       │◄─────────────────────                     │
+       │                     │                     │
+       │ GET /login (HTTPS)  │                     │
+       │─────────────────────►                     │
+       │                     │ proxy_pass (HTTP)   │
+       │                     │─────────────────────►
+       │                     │                     │
+       │                     │ HTML Response       │
+       │                     │◄─────────────────────
+       │ HTML Response       │                     │
+       │◄─────────────────────                     │
+       │ (cifrado TLS)       │                     │</code></pre><h4>Consideraciones de Seguridad</h4>
+<ul>
+<li><strong>Certificado autofirmado</strong>: Los navegadores mostrarán advertencia de seguridad</li>
+<li><strong>Sin verificación CA</strong>: Apropiado para entornos de prueba/demostración</li>
+<li><strong>Protocolos TLS 1.2/1.3</strong>: Se descartan versiones obsoletas (TLS 1.0/1.1)</li>
+</ul>
+<hr>
+<h3>5.3 Control de Suplantación de IP</h3>
+<p><strong>Requisito Extra</strong>: <em>"Control de la suplantación de IPs de usuarios que hayan iniciado sesión" (0.5 pts)</em></p>
+<h4>Implementación</h4>
+<p>El control de suplantación se implementa mediante la combinación de ipset y reglas iptables que operan a nivel de kernel, más allá del alcance de manipulación por aplicaciones en espacio de usuario.</p>
+<h5>Mecanismo de Protección</h5>
+<ol>
+<li><p><strong>Vinculación IP-Autenticación</strong>: La autenticación se asocia exclusivamente a la dirección IP del cliente, no a cookies o tokens de sesión</p>
+</li>
+<li><p><strong>Timeout Automático</strong>: Las IPs autenticadas expiran automáticamente:</p>
+<pre><code class="hljs bash">ipset create authed <span class="hljs-built_in">hash</span>:ip <span class="hljs-built_in">timeout</span> 3600</code></pre></li>
+<li><p><strong>Verificación en Tiempo Real</strong>: Cada paquete se verifica contra el conjunto ipset:</p>
+<pre><code class="hljs bash">-m <span class="hljs-built_in">set</span> --match-set authed src</code></pre></li>
+</ol>
+<h5>Limitaciones y Mitigaciones</h5>
+<table>
+<thead>
+<tr>
+<th>Amenaza</th>
+<th>Protección</th>
+<th>Limitación</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>IP Spoofing externo</td>
+<td>NAT oculta IPs internas</td>
+<td>Spoofing interno posible</td>
+</tr>
+<tr>
+<td>Robo de sesión</td>
+<td>No hay cookies/tokens</td>
+<td>IP compartida = sesión compartida</td>
+</tr>
+<tr>
+<td>MAC Spoofing</td>
+<td>No implementado</td>
+<td>Requeriría arp-scan + ebtables</td>
+</tr>
+</tbody></table>
+<h5>Verificación de Estado</h5>
+<p>La función <code>check_ipset()</code> permite verificar si una IP está autenticada:</p>
+<pre><code class="hljs python"><span class="hljs-keyword">def</span> <span class="hljs-title function_">check_ipset</span>(<span class="hljs-params">ip: <span class="hljs-built_in">str</span></span>) -&gt; <span class="hljs-built_in">bool</span>:
+    <span class="hljs-string">"""Devuelve True si la IP está actualmente en el ipset 'authed'."""</span>
+    <span class="hljs-keyword">try</span>:
+        res = subprocess.run(
+            [<span class="hljs-string">"ipset"</span>, <span class="hljs-string">"test"</span>, <span class="hljs-string">"authed"</span>, ip],
+            capture_output=<span class="hljs-literal">True</span>,
+        )
+        <span class="hljs-keyword">return</span> res.returncode == <span class="hljs-number">0</span>
+    <span class="hljs-keyword">except</span> Exception <span class="hljs-keyword">as</span> e:
+        <span class="hljs-built_in">print</span>(<span class="hljs-string">f"Error comprobando ipset para <span class="hljs-subst">{ip}</span>: <span class="hljs-subst">{e}</span>"</span>)
+        <span class="hljs-keyword">return</span> <span class="hljs-literal">False</span></code></pre><hr>
+<h3>5.4 Enmascaramiento IP (NAT)</h3>
+<p><strong>Requisito Extra</strong>: <em>"Servicio de enmascaramiento IP sobre la red donde opera el portal cautivo" (0.25 pts)</em></p>
+<h4>Implementación</h4>
+<p>El enmascaramiento se configura en el entrypoint del router:</p>
+<pre><code class="hljs bash"><span class="hljs-comment"># Habilitar forwarding IPv4</span>
+sysctl -w net.ipv4.ip_forward=1
+
+<span class="hljs-comment"># Configurar MASQUERADE (Source NAT dinámico)</span>
+iptables -t nat -A POSTROUTING -o <span class="hljs-string">"<span class="hljs-variable">$UPLINK_IF</span>"</span> -j MASQUERADE
+
+<span class="hljs-comment"># Permitir respuestas de conexiones establecidas</span>
+iptables -A FORWARD -i <span class="hljs-string">"<span class="hljs-variable">$UPLINK_IF</span>"</span> -o <span class="hljs-string">"<span class="hljs-variable">$LAN_IF</span>"</span> \
+  -m state --state RELATED,ESTABLISHED -j ACCEPT</code></pre><h4>Explicación del MASQUERADE</h4>
+<p><strong>MASQUERADE</strong> es una variante de SNAT (Source NAT) que automáticamente utiliza la IP de la interfaz de salida. Es ideal cuando la IP externa puede cambiar (DHCP).</p>
+<pre><code class="hljs plaintext">Antes de MASQUERADE:
+┌────────────┐                    ┌────────────┐
+│  Cliente   │   src: 10.200.0.1  │  Internet  │
+│ 10.200.0.1 │ ──────────────────►│            │
+└────────────┘                    └────────────┘
+                                       ❌
+                          (IP privada no enrutable)
+
+Después de MASQUERADE:
+┌────────────┐      ┌────────────┐      ┌────────────┐
+│  Cliente   │      │   Router   │      │  Internet  │
+│ 10.200.0.1 │ ────►│ MASQUERADE │ ────►│            │
+└────────────┘      │            │      └────────────┘
+                    │ src: IP_WAN│           ✓
+                    └────────────┘</code></pre><h4>Tabla de Conexiones (conntrack)</h4>
+<p>El kernel mantiene una tabla de conexiones para traducir respuestas:</p>
+<pre><code class="hljs plaintext">tcp   ESTABLISHED src=10.200.0.1 dst=93.184.216.34 sport=54321 dport=80
+      src=93.184.216.34 dst=IP_WAN sport=80 dport=54321 [ASSURED]</code></pre><p>Esto permite que las respuestas de Internet lleguen correctamente al cliente original.</p>
+<hr>
+<h3>5.5 Experiencia de Usuario y Diseño</h3>
+<p><strong>Requisito Extra</strong>: <em>"Experiencia de usuario y diseño de la página web del portal" (0.25 pts)</em></p>
+<h4>Implementación</h4>
+<p>El diseño se implementa en <code>Docker/router/app/static/base.css</code> con un enfoque moderno:</p>
+<h5>Características Visuales</h5>
+<pre><code class="hljs css"><span class="hljs-selector-pseudo">:root</span> {
+    <span class="hljs-attr">--bg</span>: <span class="hljs-number">#0f172a</span>;
+    <span class="hljs-attr">--bg-card</span>: <span class="hljs-number">#020617</span>;
+    <span class="hljs-attr">--accent</span>: <span class="hljs-number">#38bdf8</span>;
+    <span class="hljs-attr">--accent-soft</span>: <span class="hljs-built_in">rgba</span>(<span class="hljs-number">56</span>, <span class="hljs-number">189</span>, <span class="hljs-number">248</span>, <span class="hljs-number">0.15</span>);
+    <span class="hljs-attr">--text</span>: <span class="hljs-number">#e5e7eb</span>;
+    <span class="hljs-attr">--muted</span>: <span class="hljs-number">#9ca3af</span>;
+    <span class="hljs-attr">--danger</span>: <span class="hljs-number">#f97373</span>;
+    <span class="hljs-attr">--border</span>: <span class="hljs-built_in">rgba</span>(<span class="hljs-number">148</span>, <span class="hljs-number">163</span>, <span class="hljs-number">184</span>, <span class="hljs-number">0.3</span>);
+    <span class="hljs-attr">--radius</span>: <span class="hljs-number">18px</span>;
+}</code></pre><p><strong>Paleta de colores</strong>:</p>
+<ul>
+<li>Tema oscuro con fondo degradado (<code>#0f172a</code> → <code>#020617</code>)</li>
+<li>Acento cyan/azul (<code>#38bdf8</code>)</li>
+<li>Texto con contraste adecuado para accesibilidad</li>
+</ul>
+<h5>Elementos de Diseño</h5>
+<ol>
+<li><p><strong>Cards con efecto glassmorphism</strong>:</p>
+<pre><code class="hljs css"><span class="hljs-selector-class">.card</span> {
+    <span class="hljs-attribute">background</span>: <span class="hljs-built_in">radial-gradient</span>(circle at top left, <span class="hljs-built_in">var</span>(--accent-soft), <span class="hljs-number">#020617</span> <span class="hljs-number">55%</span>);
+    <span class="hljs-attribute">border-radius</span>: <span class="hljs-built_in">var</span>(--radius);
+    backdrop-<span class="hljs-attribute">filter</span>: <span class="hljs-built_in">blur</span>(<span class="hljs-number">18px</span>);
+    <span class="hljs-attribute">box-shadow</span>: <span class="hljs-number">0</span> <span class="hljs-number">22px</span> <span class="hljs-number">40px</span> <span class="hljs-built_in">rgba</span>(<span class="hljs-number">15</span>, <span class="hljs-number">23</span>, <span class="hljs-number">42</span>, <span class="hljs-number">0.85</span>);
+}</code></pre></li>
+<li><p><strong>Botones con gradiente y hover animado</strong>:</p>
+<pre><code class="hljs css"><span class="hljs-selector-tag">button</span> {
+    <span class="hljs-attribute">background</span>: <span class="hljs-built_in">linear-gradient</span>(<span class="hljs-number">135deg</span>, <span class="hljs-number">#38bdf8</span>, <span class="hljs-number">#6366f1</span>);
+    <span class="hljs-attribute">box-shadow</span>: <span class="hljs-number">0</span> <span class="hljs-number">14px</span> <span class="hljs-number">30px</span> <span class="hljs-built_in">rgba</span>(<span class="hljs-number">37</span>, <span class="hljs-number">99</span>, <span class="hljs-number">235</span>, <span class="hljs-number">0.75</span>);
+    <span class="hljs-attribute">transition</span>: transform <span class="hljs-number">0.08s</span> ease-out;
+}
+<span class="hljs-selector-tag">button</span><span class="hljs-selector-pseudo">:hover</span> {
+    <span class="hljs-attribute">transform</span>: <span class="hljs-built_in">translateY</span>(-<span class="hljs-number">1.5px</span>);
+}</code></pre></li>
+<li><p><strong>Indicador de estado visual</strong> (pill):</p>
+<pre><code class="hljs css"><span class="hljs-selector-class">.status-pill</span> {
+    <span class="hljs-attribute">display</span>: inline-flex;
+    <span class="hljs-attribute">align-items</span>: center;
+    <span class="hljs-attribute">padding</span>: <span class="hljs-number">4px</span> <span class="hljs-number">10px</span>;
+    <span class="hljs-attribute">border-radius</span>: <span class="hljs-number">999px</span>;
+    <span class="hljs-attribute">background</span>: <span class="hljs-built_in">rgba</span>(<span class="hljs-number">15</span>, <span class="hljs-number">23</span>, <span class="hljs-number">42</span>, <span class="hljs-number">0.75</span>);
+}
+<span class="hljs-selector-class">.dot</span><span class="hljs-selector-class">.ok</span> {
+    <span class="hljs-attribute">background</span>: <span class="hljs-number">#22c55e</span>;
+    <span class="hljs-attribute">box-shadow</span>: <span class="hljs-number">0</span> <span class="hljs-number">0</span> <span class="hljs-number">8px</span> <span class="hljs-built_in">rgba</span>(<span class="hljs-number">34</span>, <span class="hljs-number">197</span>, <span class="hljs-number">94</span>, <span class="hljs-number">0.7</span>);
+}</code></pre></li>
+</ol>
+<h5>Páginas Implementadas</h5>
+<ol>
+<li><strong>Login (<code>/login</code>)</strong>: Formulario de autenticación con mensajes de error</li>
+<li><strong>Status (<code>/status</code>)</strong>: Estado de sesión con actualización AJAX cada 5 segundos</li>
+<li><strong>Admin (<code>/admin/users</code>)</strong>: Gestión de usuarios con tabla y formulario de creación</li>
+</ol>
+<h5>Actualización Dinámica de Estado</h5>
+<pre><code class="hljs javascript"><span class="hljs-keyword">async</span> <span class="hljs-keyword">function</span> <span class="hljs-title function_">refreshStatus</span>(<span class="hljs-params"></span>) {
+    <span class="hljs-keyword">const</span> res = <span class="hljs-keyword">await</span> <span class="hljs-title function_">fetch</span>(<span class="hljs-string">'/status.json'</span>, {<span class="hljs-attr">cache</span>: <span class="hljs-string">'no-store'</span>});
+    <span class="hljs-keyword">const</span> data = <span class="hljs-keyword">await</span> res.<span class="hljs-title function_">json</span>();
+    
+    <span class="hljs-keyword">if</span> (data.<span class="hljs-property">authenticated</span>) {
+        dot.<span class="hljs-property">classList</span>.<span class="hljs-title function_">add</span>(<span class="hljs-string">'ok'</span>);
+        text.<span class="hljs-property">textContent</span> = <span class="hljs-string">"Conectado · acceso a Internet habilitado"</span>;
+    } <span class="hljs-keyword">else</span> {
+        dot.<span class="hljs-property">classList</span>.<span class="hljs-title function_">remove</span>(<span class="hljs-string">'ok'</span>);
+        text.<span class="hljs-property">textContent</span> = <span class="hljs-string">"Sesión expirada · vuelve a iniciar sesión"</span>;
+    }
+    expires.<span class="hljs-property">textContent</span> = data.<span class="hljs-property">expires_in_seconds</span>;
+}
+<span class="hljs-built_in">setInterval</span>(refreshStatus, <span class="hljs-number">5000</span>);</code></pre><hr>
+<h2>Flujo de Funcionamiento</h2>
+<h3>Escenario Completo: Usuario No Autenticado</h3>
+<pre><code class="hljs plaintext">┌─────────────────────────────────────────────────────────────────────────┐
+│                        FLUJO DE AUTENTICACIÓN                           │
+└─────────────────────────────────────────────────────────────────────────┘
+
+1. Cliente se conecta a la red LAN
+   └─► Recibe IP 10.200.0.X vía Docker network
+
+2. Cliente intenta acceder a http://google.com
+   └─► DNS resuelve google.com correctamente
+   └─► iptables intercepta (IP no está en ipset 'authed')
+   └─► DNAT redirige al portal (10.200.0.254:80)
+
+3. nginx recibe petición HTTP
+   └─► Detecta ruta (/ o /generate_204, etc.)
+   └─► Responde 302 → https://portal.local/login
+
+4. Cliente sigue redirección HTTPS
+   └─► DNS resuelve portal.local → 10.200.0.254
+   └─► TLS handshake con certificado autofirmado
+   └─► nginx proxy_pass → Python backend :8080
+
+5. Backend Python sirve formulario de login
+   └─► render_login_page() genera HTML
+   └─► Cliente ve página de autenticación
+
+6. Usuario envía credenciales (POST /login)
+   └─► Backend valida contra users.json
+   └─► Si válido: ipset add authed 10.200.0.X timeout 3600
+   └─► Responde 302 → /status
+
+7. Cliente ahora está autenticado
+   └─► iptables permite FORWARD (IP en ipset 'authed')
+   └─► Cliente puede acceder a Internet
+   └─► Después de 3600s, IP expira automáticamente</code></pre><hr>
+<h2>Estructura de Archivos</h2>
+<pre><code class="hljs plaintext">Captive-Portal/
+├── captiveportal.md          # Descripción del proyecto (requisitos)
+├── README.md                 # Documentación técnica
+├── ANALISIS_PROYECTO.md      # Este documento
+│
+├── Docker/
+│   ├── config/
+│   │   ├── create_lan.sh     # Crea red Docker bridge
+│   │   ├── router_online.sh  # Inicia contenedor router
+│   │   └── client_online.sh  # Inicia contenedor cliente
+│   │
+│   ├── router/
+│   │   ├── Dockerfile        # Imagen del router/portal
+│   │   ├── entrypoint.sh     # Script de inicialización
+│   │   ├── start-ui.sh       # UI noVNC opcional
+│   │   └── app/
+│   │       ├── __init__.py
+│   │       ├── main.py       # Servidor HTTP + routing
+│   │       ├── portal.py     # Lógica de login/status
+│   │       ├── auth.py       # Autenticación HTTP Basic
+│   │       ├── admin.py      # Panel de administración
+│   │       ├── users.py      # Gestión de usuarios
+│   │       ├── ipset_utils.py # Wrapper para ipset CLI
+│   │       ├── config.py     # Variables de configuración
+│   │       ├── users.json    # Base de datos de usuarios
+│   │       └── static/
+│   │           └── base.css  # Estilos del portal
+│   │
+│   └── client/
+│       ├── Dockerfile        # Imagen del cliente
+│       ├── entrypoint.sh     # Configuración de red
+│       └── start-ui.sh       # UI noVNC con Chromium
+│
+├── notes/                    # Notas de desarrollo
+└── scripts/                  # Scripts auxiliares</code></pre><hr>
+<h2>Conclusiones</h2>
+<h3>Cumplimiento de Requisitos</h3>
+<table>
+<thead>
+<tr>
+<th>Requisito</th>
+<th>Estado</th>
+<th>Implementación</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Endpoint HTTP de login</strong></td>
+<td>✅</td>
+<td><code>POST /login</code> en <code>portal.py</code></td>
+</tr>
+<tr>
+<td><strong>Bloqueo de enrutamiento</strong></td>
+<td>✅</td>
+<td>iptables + ipset en <code>entrypoint.sh</code></td>
+</tr>
+<tr>
+<td><strong>Definición de usuarios</strong></td>
+<td>✅</td>
+<td>JSON + API en <code>users.py</code></td>
+</tr>
+<tr>
+<td><strong>Concurrencia</strong></td>
+<td>✅</td>
+<td><code>ThreadingMixIn</code> en <code>main.py</code></td>
+</tr>
+<tr>
+<td><strong>Detección automática</strong></td>
+<td>✅</td>
+<td>Endpoints nginx para Android/iOS/Windows</td>
+</tr>
+<tr>
+<td><strong>HTTPS</strong></td>
+<td>✅</td>
+<td>Certificado TLS + nginx reverse proxy</td>
+</tr>
+<tr>
+<td><strong>Control de suplantación</strong></td>
+<td>✅</td>
+<td>Autenticación por IP + timeout</td>
+</tr>
+<tr>
+<td><strong>NAT/MASQUERADE</strong></td>
+<td>✅</td>
+<td>iptables MASQUERADE</td>
+</tr>
+<tr>
+<td><strong>UX/Diseño</strong></td>
+<td>✅</td>
+<td>CSS moderno con glassmorphism</td>
+</tr>
+</tbody></table>
+<h3>Tecnologías Empleadas</h3>
+<ul>
+<li><strong>Lenguaje</strong>: Python 3 (biblioteca estándar únicamente)</li>
+<li><strong>Firewall</strong>: iptables, ipset</li>
+<li><strong>DNS</strong>: dnsmasq</li>
+<li><strong>Proxy/TLS</strong>: nginx, OpenSSL</li>
+<li><strong>Contenedores</strong>: Docker</li>
+<li><strong>Interfaz</strong>: HTML5, CSS3, JavaScript (vanilla)</li>
+</ul>
+<h3>Aspectos Destacables</h3>
+<ol>
+<li><strong>Sin dependencias externas</strong>: Cumple estrictamente con el requisito de usar solo biblioteca estándar de Python</li>
+<li><strong>Arquitectura modular</strong>: Separación clara entre componentes (auth, portal, admin, users)</li>
+<li><strong>Containerización</strong>: Facilita despliegue y pruebas reproducibles</li>
+<li><strong>Documentación</strong>: Código comentado y README detallado</li>
+</ol>
+<h3>Posibles Mejoras Futuras</h3>
+<ul>
+<li>Implementar verificación MAC para mayor seguridad</li>
+<li>Añadir logging persistente con rotación</li>
+<li>Implementar rate limiting para protección contra brute force</li>
+<li>Dashboard de estadísticas de uso de red</li>
+<li>Integración con LDAP/RADIUS para autenticación empresarial</li>
+</ul>
+<hr>
+<p><em>Documento elaborado como análisis académico del proyecto de Portal Cautivo para la asignatura Redes de Computadoras, Universidad de La Habana, 2025.</em></p>
+
+                </article>
+                </body>
+                </html>
