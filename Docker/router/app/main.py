@@ -199,6 +199,12 @@ class PortalRequestHandler(BaseHTTPRequestHandler):
             self._send_response(200, body=html_body.encode("utf-8"))
             return
 
+        if path == "/logout":
+            status, headers, body_text = portal.process_logout(self.client_ip)
+            body_bytes = body_text.encode("utf-8") if body_text else b""
+            self._send_response(status, headers=headers, body=body_bytes)
+            return
+
         # Otros POST no soportados
         self._send_response(404, body=b"Not Found")
 

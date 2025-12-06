@@ -215,5 +215,3 @@ websockify --web=/ruta/novnc <puerto_web> <puerto_vnc>
 ```
 
 ---
-
-# 📘 Fin del documento

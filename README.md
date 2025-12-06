@@ -2,9 +2,36 @@
 
 ## Descripción General
 
-Implementación de un portal cautivo (captive portal) basado en contenedores Docker que simula una red controlada con autenticación obligatoria. El sistema intercepta el tráfico HTTP de clientes no autenticados y los redirige a una página de inicio de sesión mediante reglas de iptables/ipset, permitiendo o bloqueando el acceso a Internet según el estado de autenticación del usuario.
+Implementación de un portal cautivo (captive portal) que simula una red controlada con autenticación obligatoria. El sistema intercepta el tráfico HTTP de clientes no autenticados y los redirige a una página de inicio de sesión mediante reglas de iptables/ipset, permitiendo o bloqueando el acceso a Internet según el estado de autenticación del usuario.
 
 Este proyecto constituye una solución completa de control de acceso a red que integra servicios de enrutamiento, DNS, proxy inverso (nginx), backend de autenticación (Python HTTP server), y una interfaz gráfica accesible vía noVNC para facilitar pruebas y demostraciones en entornos académicos y de investigación.
+
+**El proyecto soporta dos modos de despliegue:**
+
+1. **Docker (simulación)**: Contenedores aislados ideal para desarrollo y pruebas
+2. **Linux Nativo (producción)**: Despliegue directo en servidor Linux para redes reales
+
+## Inicio Rápido
+
+### Opción 1: Despliegue con Docker (Recomendado para pruebas)
+
+```bash
+cd Docker
+./1-prepare.sh    # Construir imágenes
+./2-deploy.sh     # Iniciar contenedores
+# Acceder a: http://localhost:6081/vnc.html (Cliente 1)
+```
+
+### Opción 2: Despliegue en Linux Nativo (Producción)
+
+```bash
+cd native
+sudo ./setup-native.sh         # Instalación inicial
+sudo nano /etc/captive-portal/portal.conf  # Configurar interfaces
+sudo ./start-portal.sh         # Iniciar portal
+```
+
+Consulta `Docker/DESPLIEGUE.md` o `native/README.md` para instrucciones detalladas.
 
 ## Arquitectura del Sistema
 

@@ -1,0 +1,120 @@
+# Configuración del Portal Cautivo - Linux Nativo
+# 
+# Este archivo contiene todas las variables de configuración necesarias
+# para ejecutar el portal cautivo en un sistema Linux nativo.
+#
+# IMPORTANTE: Edita este archivo según tu topología de red antes de
+# ejecutar start-portal.sh
+
+# ============================================================================
+# INTERFACES DE RED
+# ============================================================================
+
+# Interfaz WAN (conexión a Internet)
+# Esta interfaz debe estar conectada a tu router/módem de Internet
+# Ejemplos: enp0s3, eth0, wlan0, ens33
+UPLINK_IF=enp0s3
+
+# Interfaz LAN (red interna donde se conectan los clientes)
+# Esta interfaz debe estar conectada a tu switch/AP donde los clientes
+# se conectarán para autenticarse en el portal
+# Ejemplos: enp0s8, eth1, wlan1, ens34
+LAN_IF=enp0s8
+
+# ============================================================================
+# CONFIGURACIÓN DE RED LAN
+# ============================================================================
+
+# IP que tendrá el portal cautivo en la red LAN
+# Los clientes usarán esta IP como gateway y DNS
+LAN_IP=192.168.100.1
+
+# Subred de la LAN en notación CIDR
+# Debe coincidir con la máscara de red que uses
+# Ejemplos: 192.168.100.0/24 (255.255.255.0)
+#           10.0.0.0/24 (255.255.255.0)
+#           172.16.0.0/16 (255.255.0.0)
+LAN_CIDR=192.168.100.0/24
+
+# ============================================================================
+# PUERTOS DE SERVICIOS
+# ============================================================================
+
+# Puerto del backend Python (interno, no accesible desde clientes)
+# Solo nginx se comunicará con este puerto localmente
+PORTAL_PORT=8080
+
+# Puerto HTTP (clientes no autenticados son redirigidos aquí)
+# Estándar: 80
+NGINX_HTTP_PORT=80
+
+# Puerto HTTPS (portal de autenticación)
+# Estándar: 443
+NGINX_HTTPS_PORT=443
+
+# ============================================================================
+# CONFIGURACIÓN DNS
+# ============================================================================
+
+# Tamaño de la caché DNS (número de entradas)
+# Mayor = más memoria pero mejor rendimiento
+DNS_CACHE_SIZE=1000
+
+# ============================================================================
+# CONFIGURACIÓN DEL PORTAL
+# ============================================================================
+
+# Duración de la sesión autenticada (en segundos)
+# Después de este tiempo, el usuario debe volver a autenticarse
+# Ejemplos: 3600 = 1 hora
+#           1800 = 30 minutos
+#           7200 = 2 horas
+#           86400 = 24 horas
+AUTH_TIMEOUT=3600
+
+# Nombre común del certificado TLS (Common Name)
+# Los clientes accederán al portal usando https://CERT_CN/
+# Este nombre debe resolverse a LAN_IP vía DNS (configurado automáticamente)
+CERT_CN=portal.local
+
+# ============================================================================
+# RUTAS DEL SISTEMA
+# ============================================================================
+
+# Directorio donde está instalada la aplicación Python
+# (configurado automáticamente por setup-native.sh)
+APP_DIR=/opt/captive-portal
+
+# Archivo de usuarios (se crea automáticamente si no existe)
+# Contiene las credenciales de acceso al portal
+USERS_FILE=/opt/captive-portal/app/users.json
+
+# ============================================================================
+# NOTAS IMPORTANTES
+# ============================================================================
+#
+# 1. CONFIGURACIÓN DE INTERFACES:
+#    Después de editar este archivo, debes configurar la interfaz LAN:
+#    
+#    sudo ip addr add 192.168.100.1/24 dev enp0s8
+#    sudo ip link set enp0s8 up
+#
+# 2. DHCP (OPCIONAL):
+#    Si quieres que los clientes obtengan IP automáticamente, instala
+#    un servidor DHCP (ej: isc-dhcp-server) y configúralo para la LAN_CIDR
+#
+# 3. USUARIOS:
+#    El usuario por defecto es: admin / admin
+#    Puedes crear más usuarios desde: https://portal.local/admin/users
+#
+# 4. CERTIFICADO TLS:
+#    Se genera automáticamente (autofirmado) en:
+#    /etc/captive-portal/ssl/portal.{key,crt}
+#    Los navegadores mostrarán advertencia de seguridad (normal en portales cautivos)
+#
+# 5. LOGS:
+#    - Backend Python: /var/log/captive-portal/backend.log
+#    - DNS (dnsmasq):  /var/log/captive-portal/dnsmasq.log
+#    - nginx:          /var/log/nginx/error.log
+#
+# ============================================================================

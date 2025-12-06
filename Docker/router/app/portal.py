@@ -8,7 +8,7 @@ import html
 
 from .config import AUTH_TIMEOUT
 from .users import load_users
-from .ipset_utils import add_to_ipset, check_ipset
+from .ipset_utils import add_to_ipset, check_ipset, remove_from_ipset, get_remaining_timeout
 
 
 def render_login_page(client_ip: str, auth_timeout: int, error: Optional[str] = None) -> str:
@@ -141,6 +141,30 @@ def render_status_page() -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Estado del Portal</title>
     <link rel="stylesheet" href="/static/base.css">
+    <style>
+        .btn-logout {
+            background: var(--danger, #dc3545);
+            margin-top: 16px;
+        }
+        .btn-logout:hover {
+            background: #c82333;
+        }
+        .time-display {
+            font-size: 1.4em;
+            font-weight: bold;
+            color: var(--accent, #0077cc);
+        }
+        .time-warning {
+            color: var(--danger, #dc3545) !important;
+        }
+        #logout-section {
+            display: none;
+            margin-top: 20px;
+        }
+        #logout-section.show {
+            display: block;
+        }
+    </style>
 </head>
 <body>
 
@@ -161,7 +185,14 @@ def render_status_page() -> str:
         </div>
 
         <div class="helper" id="info-exp">
-            Tiempo restante de sesión: <strong id="expires">-</strong> segundos
+            Tiempo restante: <span class="time-display" id="time-display">--:--</span>
+        </div>
+
+        <!-- Botón de logout (solo visible si autenticado) -->
+        <div id="logout-section">
+            <form id="logout-form" method="post" action="/logout">
+                <button type="submit" class="btn-logout">Cerrar sesión</button>
+            </form>
         </div>
 
         <!-- Enlace al portal -->
@@ -173,7 +204,45 @@ def render_status_page() -> str:
 </div>
 
 <script>
-// --- AUTO-ACTUALIZACIÓN DE ESTADO ---
+let remainingSeconds = 0;
+let countdownInterval = null;
+
+function formatTime(seconds) {
+    if (seconds <= 0) return "00:00";
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) {
+        return h + ":" + String(m).padStart(2, '0') + ":" + String(s).padStart(2, '0');
+    }
+    return String(m).padStart(2, '0') + ":" + String(s).padStart(2, '0');
+}
+
+function updateTimeDisplay() {
+    const display = document.getElementById('time-display');
+    display.textContent = formatTime(remainingSeconds);
+    
+    // Advertencia visual si queda poco tiempo (menos de 5 minutos)
+    if (remainingSeconds > 0 && remainingSeconds < 300) {
+        display.classList.add('time-warning');
+    } else {
+        display.classList.remove('time-warning');
+    }
+}
+
+function startCountdown() {
+    if (countdownInterval) clearInterval(countdownInterval);
+    countdownInterval = setInterval(() => {
+        if (remainingSeconds > 0) {
+            remainingSeconds--;
+            updateTimeDisplay();
+        } else {
+            clearInterval(countdownInterval);
+            refreshStatus(); // Refrescar estado cuando llegue a 0
+        }
+    }, 1000);
+}
+
 async function refreshStatus() {
     try {
         const res = await fetch('/status.json', {cache: 'no-store'});
@@ -182,32 +251,48 @@ async function refreshStatus() {
 
         const dot = document.getElementById('dot');
         const text = document.getElementById('text');
-        const expires = document.getElementById('expires');
         const clientIp = document.getElementById('client_ip');
+        const logoutSection = document.getElementById('logout-section');
 
         clientIp.textContent = data.client_ip || 'desconocida';
 
         if (data.authenticated) {
             dot.classList.add('ok');
             text.textContent = "Conectado · acceso a Internet habilitado";
+            logoutSection.classList.add('show');
+            
+            // Actualizar tiempo restante real desde el servidor
+            remainingSeconds = data.expires_in_seconds || 0;
+            updateTimeDisplay();
+            startCountdown();
         } else {
             dot.classList.remove('ok');
             text.textContent = "Sesión expirada · vuelve a iniciar sesión";
-        }
-
-        if (typeof data.expires_in_seconds !== 'undefined') {
-            expires.textContent = data.expires_in_seconds;
+            logoutSection.classList.remove('show');
+            remainingSeconds = 0;
+            updateTimeDisplay();
+            if (countdownInterval) clearInterval(countdownInterval);
         }
 
     } catch (e) {
         console.error("Error refrescando estado:", e);
-        const text = document.getElementById('text');
-        text.textContent = "Error obteniendo estado del portal";
+        document.getElementById('text').textContent = "Error obteniendo estado del portal";
     }
 }
 
-setInterval(refreshStatus, 5000);
-document.addEventListener('DOMContentLoaded', refreshStatus);
+// Manejar logout con confirmación
+document.addEventListener('DOMContentLoaded', () => {
+    const form = document.getElementById('logout-form');
+    form.addEventListener('submit', (e) => {
+        if (!confirm('¿Seguro que deseas cerrar la sesión? Perderás el acceso a Internet.')) {
+            e.preventDefault();
+        }
+    });
+    refreshStatus();
+});
+
+// Refrescar estado cada 30 segundos (el countdown local mantiene la precisión)
+setInterval(refreshStatus, 30000);
 </script>
 
 </body>
@@ -218,9 +303,27 @@ document.addEventListener('DOMContentLoaded', refreshStatus);
 def get_status_json(client_ip: str) -> Dict[str, object]:
     """Devuelve el JSON con el estado de autenticación."""
     authed = check_ipset(client_ip)
+    remaining = get_remaining_timeout(client_ip) if authed else 0
     return {
         "client_ip": client_ip,
         "authenticated": authed,
-        # Para simplificar, devolvemos siempre AUTH_TIMEOUT como duración teórica
-        "expires_in_seconds": AUTH_TIMEOUT,
+        "expires_in_seconds": remaining,
     }
+
+
+def process_logout(client_ip: str) -> Tuple[int, Dict[str, str], str]:
+    """
+    Procesa un POST /logout.
+    Elimina la IP del ipset y redirige al login.
+    """
+    ok = remove_from_ipset(client_ip)
+    if ok:
+        headers = {"Location": "/login"}
+        return 302, headers, ""
+    else:
+        body = """<html><body>
+        <h1>Error al cerrar sesión</h1>
+        <p>No se pudo eliminar tu IP del sistema. Es posible que ya no estuvieras autenticado.</p>
+        <p><a href="/login">Volver al portal</a></p>
+        </body></html>"""
+        return 500, {}, body
