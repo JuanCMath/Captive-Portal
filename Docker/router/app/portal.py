@@ -125,7 +125,7 @@ def process_login(client_ip: str, form_data: Dict[str, List[str]]) -> Tuple[int,
         return 500, {}, body
 
     # OK → redirige a /status
-    headers = {"Location": "https://portal.local/status"}
+    headers = {"Location": "https://portal.hastalap/status"}
     return 302, headers, ""
 
 

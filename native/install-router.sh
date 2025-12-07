@@ -43,7 +43,7 @@ fi
 : "${NGINX_HTTP_PORT:=80}"
 : "${NGINX_HTTPS_PORT:=443}"
 : "${AUTH_TIMEOUT:=3600}"
-: "${CERT_CN:=portal.local}"
+: "${CERT_CN:=portal.hastalap}"
 : "${DNS_CACHE_SIZE:=1000}"
 
 # Funciones de logging
@@ -255,7 +255,7 @@ listen-address=${LAN_IP}
 interface=${LAN_IF}
 bind-interfaces
 
-# Resolver el portal local
+# Resolver el portal.hastalap
 address=/${CERT_CN}/${LAN_IP}
 
 # DNS servidores upstream (para resolver dominios reales)
@@ -317,7 +317,7 @@ setup_nginx() {
   cat > /etc/nginx/sites-available/portal.conf <<'EOF'
 server {
     listen 80 default_server;
-    server_name portal.local _;
+    server_name portal.hastalap _;
 
     # URLs de detección de portal cautivo
     location = /generate_204 {

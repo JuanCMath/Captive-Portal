@@ -59,7 +59,7 @@ read -p "IP del portal [192.168.100.1]: " LAN_IP
 LAN_IP="${LAN_IP:-192.168.100.1}"
 [[ ! "$LAN_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && { echo "Error: formato IP inválido"; exit 1; }
 
-read -p "Máscara CIDR [24]: " NETMASK
+read -p "Máscara [24]: " NETMASK
 NETMASK="${NETMASK:-24}"
 LAN_CIDR="${LAN_IP%.*}.0/$NETMASK"
 echo "Subred: $LAN_CIDR"

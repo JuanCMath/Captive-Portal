@@ -22,14 +22,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 APP_SOURCE="$REPO_ROOT/Docker/router/app"
+CERT_CN="portal.hastalap"
 
 echo "==> Instalando portal cautivo..."
+echo ""
 
 # Instalar dependencias
+echo "====> Actualizando dependencias existentes..."
 apt-get update -qq
+echo "====> Instalando paquetes necesarios..."
 apt-get install -y iptables ipset dnsmasq nginx openssl python3 python3-requests iproute2 curl >/dev/null 2>&1
 
 # Crear estructura de directorios
+echo "====> Creando estructura de directorios..."
 mkdir -p /opt/captive-portal
 mkdir -p /etc/captive-portal/ssl
 mkdir -p /var/log/captive-portal
@@ -42,8 +47,10 @@ fi
 cp -r "$APP_SOURCE" /opt/captive-portal/
 
 # Crear configuración por defecto si no existe
-if [[ ! -f /etc/captive-portal/portal.conf ]]; then
-  cat > /etc/captive-portal/portal.conf <<'EOF'
+echo "====> Buscando archivo de configuración por defecto..."
+if [[ ! -f /etc/captive-portal/portal.conf ]]; then {
+  echo "======> Creando  en /etc/captive-portal/portal.conf...";
+  cat > /etc/captive-portal/portal.conf << EOF
 # Configuración del Portal Cautivo - Linux Nativo
 # Edita este archivo según tu topología de red
 
@@ -77,7 +84,7 @@ AUTH_TIMEOUT=3600
 
 # Nombre común del certificado TLS
 # Los clientes accederán a https://CERT_CN/
-CERT_CN=portal.local
+CERT_CN=/${CERT_CN}
 
 # Ruta de la aplicación Python
 APP_DIR=/opt/captive-portal
@@ -85,9 +92,11 @@ APP_DIR=/opt/captive-portal
 # Archivo de usuarios (se crea automáticamente si no existe)
 USERS_FILE=/opt/captive-portal/app/users.json
 EOF
+}
 fi
 
 # Crear usuario del sistema y permisos
+echo "====> Configurando permisos..."
 if ! id -u captive-portal >/dev/null 2>&1; then
   useradd -r -s /bin/false captive-portal
 fi
@@ -95,6 +104,7 @@ chown -R captive-portal:captive-portal /opt/captive-portal /var/log/captive-port
 chmod 755 /opt/captive-portal /var/log/captive-portal
 
 # Verificar instalación
+echo "====> Verificando instalación..."
 for cmd in iptables ipset dnsmasq nginx openssl python3; do
   command -v "$cmd" >/dev/null || { echo "Error: falta $cmd"; exit 1; }
 done
@@ -104,6 +114,6 @@ done
 # RESUMEN Y PRÓXIMOS PASOS
 # ============================================================================
 
-echo "Instalación completada"
-echo "Edita /etc/captive-portal/portal.conf y ejecuta start-portal.sh"
+echo "==> Instalación completada"
+echo "==> Edita /etc/captive-portal/portal.conf (puedes usar configure-interfaces.sh) y ejecuta start-portal.sh"
 exit 0

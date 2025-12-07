@@ -50,7 +50,7 @@
 │     → DNS query: "google.com" → router                         │
 │     → Router responde: "google.com = IP real"                  │
 │     → HTTP request → router intercepta (iptables)              │
-│     → Redirige a https://portal.local/login                    │
+│     → Redirige a https://portal.hastalap/login                 │
 │                                                                 │
 │  3. Cliente intenta HTTPS → https://google.com                  │
 │     → iptables detecta: IP no autenticada                      │
@@ -261,15 +261,17 @@ sudo nano /etc/netplan/00-installer-config.yaml
 network:
   version: 2
   ethernets:
-    eth0:
+    enp0s3:
       dhcp4: true
-    eth1:
+    enp0s8:
       dhcp4: no
       addresses:
         - 10.200.0.254/24
 ```
 
-> **Nota**: El router NO necesita gateway en eth1, él ES el gateway de esa red.
+> **Nota sobre interfaces**: 
+> - `enp0s3` y `enp0s8` son nombres modernos de Ubuntu (en lugar de eth0/eth1)
+> - El router NO necesita gateway en enp0s8, él ES el gateway de esa red
 
 **Guarda** (Ctrl+O, Enter, Ctrl+X)
 
@@ -286,8 +288,8 @@ ip addr show
 ```
 
 Deberías ver:
-- `eth0` con una IP 10.0.2.x (NAT para acceso a Internet)
-- `eth1` con 10.200.0.254/24 (LAN del portal)
+- `enp0s3` con una IP 10.0.2.x (NAT para acceso a Internet)
+- `enp0s8` con 10.200.0.254/24 (LAN del portal)
 
 ### 4.2 VM Cliente: Configuración DHCP (Automática)
 
@@ -435,7 +437,7 @@ ping 10.200.0.254
 nslookup example.com  # Debería resolver a 10.200.0.254
 
 # Acceder al portal
-curl -k https://portal.local
+curl -k https://portal.hastalap
 ```
 
 ### 6.2 Test en navegador
@@ -443,7 +445,7 @@ curl -k https://portal.local
 **En VM Cliente, abre Firefox**:
 
 1. **Barra de direcciones**: `http://example.com`
-2. **Resultado esperado**: Se redirige a `https://portal.local/login`
+2. **Resultado esperado**: Se redirige a `https://portal.hastalap/login`
 3. **Iniciar sesión**:
    - Usuario: `admin`
    - Contraseña: `admin`
@@ -497,7 +499,7 @@ ip addr show
 sudo ufw disable  # O permitir tráfico específico
 
 # Verificar interfaz
-ip link show eth1  # Debe estar "UP"
+ip link show enp0s8  # Debe estar "UP"
 ```
 
 ### Problema: Portal no carga

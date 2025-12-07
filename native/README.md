@@ -54,7 +54,7 @@ Contraseña: admin
 ```
 
 ### Panel de administración
-Accede a `https://portal.local/admin/users` (autenticación HTTP Basic con admin/admin)
+Accede a `https://portal.hastalap/admin/users` (autenticación HTTP Basic con admin/admin)
 
 ## Topología de Red Típica
 
@@ -143,7 +143,7 @@ sudo ipset del authed 192.168.100.50
    tail -50 /var/log/captive-portal/backend.log
    ```
 
-### El DNS no resuelve portal.local
+### El DNS no resuelve portal.hastalap
 
 1. Verificar que dnsmasq está activo:
    ```bash
@@ -157,7 +157,7 @@ sudo ipset del authed 192.168.100.50
 
 3. Probar resolución desde el servidor:
    ```bash
-   nslookup portal.local 192.168.100.1
+   nslookup portal.hastalap 192.168.100.1
    ```
 
 ### El certificado TLS no es confiable

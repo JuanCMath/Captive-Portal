@@ -13,7 +13,7 @@ set -euo pipefail
 : "${NGINX_HTTPS_PORT:=443}"           # Puerto HTTPS
 : "${DNS_CACHE_SIZE:=1000}"
 : "${AUTH_TIMEOUT:=3600}"              # Timeout ipset
-: "${CERT_CN:=portal.local}"           # Nombre del certificado TLS
+: "${CERT_CN:=portal.hastalap}"        # Nombre del certificado TLS
 : "${BROWSER_URL:=}"                   # noVNC (opcional)
 
 log(){ echo "[$(date +'%F %T')] $*"; }
@@ -72,7 +72,7 @@ domain-needed
 bogus-priv
 cache-size=${DNS_CACHE_SIZE}
 
-# Resolver portal.local al router
+# Resolver portal.hastalap al router
 address=/${CERT_CN}/${LAN_IP}
 
 # === DHCP Server ===

@@ -21,7 +21,7 @@ if [[ -f /etc/captive-portal/portal.conf ]]; then
   source /etc/captive-portal/portal.conf
   echo "  WAN: ${UPLINK_IF:-no configurado}"
   echo "  LAN: ${LAN_IF:-no configurado} (${LAN_IP:-no configurado})"
-  echo "  Portal: https://${CERT_CN:-portal.local}"
+  echo "  Portal: https://${CERT_CN:-portal.hastalap}"
   echo "  Timeout: ${AUTH_TIMEOUT:-3600}s"
 else
   echo "  Sin archivo de configuración"

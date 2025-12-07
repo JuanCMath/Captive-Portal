@@ -566,7 +566,7 @@ location = /hotspot-detect.html {
        │  (IP no autenticada)  │                       │
        │  iptables DNAT ───────┤                       │
        │                       │                       │
-       │   302 → portal.local  │                       │
+       │ 302 → portal.hastalap │                       │
        │◄──────────────────────│                       │
        │                       │                       │
        │  [Abre navegador      │                       │
@@ -616,14 +616,14 @@ fi
 - `-nodes`: No cifrar clave privada (sin passphrase)
 - `-newkey rsa:2048`: Genera nueva clave RSA de 2048 bits
 - `-days 365`: Validez de un año
-- `-subj "/CN=portal.local"`: Common Name para el certificado
+- `-subj "/CN=${CERT_CN}"`: Common Name para el certificado
 
 ##### Configuración nginx TLS
 
 ```nginx
 server {
     listen 443 ssl;
-    server_name portal.local;
+    server_name ${CERT_CN};
 
     ssl_certificate     /etc/ssl/certs/portal.crt;
     ssl_certificate_key /etc/ssl/private/portal.key;
@@ -641,12 +641,12 @@ server {
 
 ##### Resolución DNS Local
 
-dnsmasq resuelve `portal.local` a la IP del router:
+dnsmasq resuelve `portal.hastalap` a la IP del router:
 
 ```bash
 # /etc/dnsmasq.d/lan.conf
 address=/${CERT_CN}/${LAN_IP}
-# Equivale a: address=/portal.local/10.200.0.254
+# Equivale a: address=/portal.hastalap/10.200.0.254
 ```
 
 #### Flujo HTTPS
@@ -659,7 +659,7 @@ address=/${CERT_CN}/${LAN_IP}
        │                     │                     │
        │ TLS Handshake       │                     │
        │─────────────────────►                     │
-       │ (Cert: portal.local)│                     │
+      │(Cert: portal.hastalap)│                     │
        │◄─────────────────────                     │
        │                     │                     │
        │ GET /login (HTTPS)  │                     │
@@ -901,10 +901,10 @@ setInterval(refreshStatus, 5000);
 
 3. nginx recibe petición HTTP
    └─► Detecta ruta (/ o /generate_204, etc.)
-   └─► Responde 302 → https://portal.local/login
+    └─► Responde 302 → https://portal.hastalap/login
 
 4. Cliente sigue redirección HTTPS
-   └─► DNS resuelve portal.local → 10.200.0.254
+    └─► DNS resuelve portal.hastalap → 10.200.0.254
    └─► TLS handshake con certificado autofirmado
    └─► nginx proxy_pass → Python backend :8080
 

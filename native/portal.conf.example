@@ -75,7 +75,7 @@ AUTH_TIMEOUT=3600
 # Nombre común del certificado TLS (Common Name)
 # Los clientes accederán al portal usando https://CERT_CN/
 # Este nombre debe resolverse a LAN_IP vía DNS (configurado automáticamente)
-CERT_CN=portal.local
+CERT_CN=portal.hastalap
 
 # ============================================================================
 # RUTAS DEL SISTEMA
@@ -105,7 +105,7 @@ USERS_FILE=/opt/captive-portal/app/users.json
 #
 # 3. USUARIOS:
 #    El usuario por defecto es: admin / admin
-#    Puedes crear más usuarios desde: https://portal.local/admin/users
+#    Puedes crear más usuarios desde: https://portal.hastalap/admin/users
 #
 # 4. CERTIFICADO TLS:
 #    Se genera automáticamente (autofirmado) en:

@@ -551,7 +551,7 @@ location = /hotspot-detect.html {
        │  (IP no autenticada)  │                       │
        │  iptables DNAT ───────┤                       │
        │                       │                       │
-       │   302 → portal.local  │                       │
+       │302 → portal.hastalap  │                       │
        │◄──────────────────────│                       │
        │                       │                       │
        │  [Abre navegador      │                       │
@@ -583,12 +583,12 @@ TLS_CERT=<span class="hljs-string">"/etc/ssl/certs/portal.crt"</span>
 <li><code>-nodes</code>: No cifrar clave privada (sin passphrase)</li>
 <li><code>-newkey rsa:2048</code>: Genera nueva clave RSA de 2048 bits</li>
 <li><code>-days 365</code>: Validez de un año</li>
-<li><code>-subj "/CN=portal.local"</code>: Common Name para el certificado</li>
+<li><code>-subj "/CN=${CERT_CN}"</code>: Common Name para el certificado</li>
 </ul>
 <h5>Configuración nginx TLS</h5>
 <pre><code class="hljs plaintext">server {
     listen 443 ssl;
-    server_name portal.local;
+    server_name ${CERT_CN};
 
     ssl_certificate     /etc/ssl/certs/portal.crt;
     ssl_certificate_key /etc/ssl/private/portal.key;
@@ -602,10 +602,10 @@ TLS_CERT=<span class="hljs-string">"/etc/ssl/certs/portal.crt"</span>
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 }</code></pre><h5>Resolución DNS Local</h5>
-<p>dnsmasq resuelve <code>portal.local</code> a la IP del router:</p>
+<p>dnsmasq resuelve <code>portal.hastalap</code> a la IP del router:</p>
 <pre><code class="hljs bash"><span class="hljs-comment"># /etc/dnsmasq.d/lan.conf</span>
 address=/<span class="hljs-variable">${CERT_CN}</span>/<span class="hljs-variable">${LAN_IP}</span>
-<span class="hljs-comment"># Equivale a: address=/portal.local/10.200.0.254</span></code></pre><h4>Flujo HTTPS</h4>
+<span class="hljs-comment"># Equivale a: address=/portal.hastalap/10.200.0.254</span></code></pre><h4>Flujo HTTPS</h4>
 <pre><code class="hljs plaintext">┌─────────────┐       ┌─────────────┐       ┌─────────────┐
 │   Cliente   │       │    nginx    │       │   Python    │
 │             │       │  (TLS 443)  │       │   Backend   │
@@ -613,7 +613,7 @@ address=/<span class="hljs-variable">${CERT_CN}</span>/<span class="hljs-variabl
        │                     │                     │
        │ TLS Handshake       │                     │
        │─────────────────────►                     │
-       │ (Cert: portal.local)│                     │
+      │(Cert: portal.hastalap)│                    │
        │◄─────────────────────                     │
        │                     │                     │
        │ GET /login (HTTPS)  │                     │
@@ -805,10 +805,10 @@ Después de MASQUERADE:
 
 3. nginx recibe petición HTTP
    └─► Detecta ruta (/ o /generate_204, etc.)
-   └─► Responde 302 → https://portal.local/login
+    └─► Responde 302 → https://portal.hastalap/login
 
 4. Cliente sigue redirección HTTPS
-   └─► DNS resuelve portal.local → 10.200.0.254
+    └─► DNS resuelve portal.hastalap → 10.200.0.254
    └─► TLS handshake con certificado autofirmado
    └─► nginx proxy_pass → Python backend :8080
 

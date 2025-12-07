@@ -26,7 +26,7 @@ source "$CONFIG_FILE"
 : "${NGINX_HTTPS_PORT:=443}"
 : "${DNS_CACHE_SIZE:=1000}"
 : "${AUTH_TIMEOUT:=3600}"
-: "${CERT_CN:=portal.local}"
+: "${CERT_CN:=portal.hastalap}"
 : "${APP_DIR:=/opt/captive-portal}"
 : "${USERS_FILE:=/opt/captive-portal/app/users.json}"
 

@@ -55,7 +55,7 @@ Este script instala todas las dependencias e inicia el portal automáticamente.
 Contenedor que actúa como gateway y punto de control de la red. Implementa:
 - **Enrutamiento y NAT**: Configura `iptables` para realizar Source NAT (MASQUERADE) y forwarding IPv4 entre la interfaz WAN (`eth0`) y LAN (`eth1`).
 - **Sistema de autenticación por IP**: Utiliza `ipset` con conjuntos hash:ip temporales (`authed`) para mantener un registro dinámico de direcciones IP autorizadas con timeout configurable.
-- **Servidor DNS local**: `dnsmasq` resuelve peticiones DNS desde la LAN, con resolución personalizada del nombre del certificado TLS (`portal.local` por defecto) hacia la IP del router.
+ - **Servidor DNS local**: `dnsmasq` resuelve peticiones DNS desde la LAN, con resolución personalizada del nombre del certificado TLS (`portal.hastalap` por defecto) hacia la IP del router.
 - **Backend de autenticación**: Servidor HTTP implementado en Python (librería estándar) que gestiona:
   - Páginas de login y logout
   - Validación de credenciales contra `users.json`
@@ -255,7 +255,7 @@ run_client () {
 
 **Parámetros clave:**
 - `--network "${LAN_NET}" --ip "${IP}"`: Asignación de IP estática en red LAN
-- `--dns "${ROUTER_IP}"`: Fuerza uso del DNS del router (crítico para resolución de `portal.local`)
+- `--dns "${ROUTER_IP}"`: Fuerza uso del DNS del router (crítico para resolución de `portal.hastalap`)
 - `-p "${PORT}:6081"`: Mapeo de puerto noVNC único por cliente para acceso simultáneo desde host
 - `bash -lc`: Shell login que ejecuta entrypoint y start-ui en secuencia
 
@@ -310,7 +310,7 @@ Crea tres clientes (c1, c2, c3) con IPs consecutivas (`10.200.0.11`, `.12`, `.13
    - Nginx responde con redirección 302 a `https://${CERT_CN}/login`
 
 3. **Resolución DNS controlada:**
-   - Cliente resuelve `portal.local` (o CN configurado)
+   - Cliente resuelve `portal.hastalap` (o CN configurado)
    - `dnsmasq` responde con IP del router (`10.200.0.254`)
    - Evita dependencia de DNS externo y garantiza acceso al portal
 
@@ -360,7 +360,7 @@ Crea tres clientes (c1, c2, c3) con IPs consecutivas (`10.200.0.11`, `.12`, `.13
 Acceso protegido con HTTP Basic Authentication:
 
 1. **Acceso al panel:**
-   - URL: `https://portal.local/admin`
+   - URL: `https://portal.hastalap/admin`
    - Credenciales del usuario `admin` definidas en `users.json`
 
 2. **Funcionalidades:**
@@ -422,7 +422,7 @@ El contenedor router requiere privilegios elevados:
 | `NGINX_HTTPS_PORT` | `443` | Puerto HTTPS de nginx |
 | `DNS_CACHE_SIZE` | `1000` | Tamaño de caché de dnsmasq |
 | `AUTH_TIMEOUT` | `3600` | Tiempo de expiración de autorizaciones (segundos) |
-| `CERT_CN` | `portal.local` | Common Name del certificado TLS |
+| `CERT_CN` | `portal.hastalap` | Common Name del certificado TLS |
 | `BROWSER_URL` | *(vacío)* | URL para navegador en noVNC (opcional) |
 
 #### Cliente (`Docker/client/entrypoint.sh`)
@@ -479,7 +479,7 @@ bash router_online.sh router:latest
 
 # 5. Verificar inicialización del router
 docker logs -f router
-# Esperar mensaje: "Router listo. Portal en https://portal.local"
+# Esperar mensaje: "Router listo. Portal en https://portal.hastalap"
 # Ctrl+C para salir del seguimiento de logs
 
 # 6. Levantar clientes
@@ -511,7 +511,7 @@ docker exec router ipset list authed
 docker exec -it c1 bash
 
 # Probar resolución DNS
-nslookup portal.local
+nslookup portal.hastalap
 # Debe resolver a 10.200.0.254
 
 # Intentar acceso HTTP antes de autenticación
@@ -675,7 +675,7 @@ docker exec router tcpdump -i eth1 -n port 80
 
 **Opciones:**
 1. **Aceptar excepción manualmente** (apropiado para laboratorio):
-   - Chrome: Click en "Advanced" → "Proceed to portal.local (unsafe)"
+   - Chrome: Click en "Advanced" → "Proceed to portal.hastalap (unsafe)"
    - Firefox: "Advanced" → "Accept the Risk and Continue"
 
 2. **Instalar CA raíz en cliente** (para pruebas extensivas):

@@ -156,7 +156,7 @@ Abre en tu navegador web cualquiera de estas URLs:
 1. **Abre Cliente 1** en http://localhost:6081/vnc.html
 2. **Dentro del cliente**, se abrirá Chromium automáticamente
 3. **Intenta navegar** a cualquier URL (ej: http://example.com)
-4. **Serás redirigido** a https://portal.local/login
+4. **Serás redirigido** a https://portal.hastalap/login
 5. **Autentica** con:
    - Usuario: `admin`
    - Contraseña: `admin`
@@ -282,7 +282,7 @@ Por defecto, el portal crea usuario:
 - Contraseña: `admin`
 
 Para crear más usuarios, accede a http://localhost:6091/vnc.html (router) y usa el panel de administración en:
-- URL: https://portal.local/admin/users
+- URL: https://portal.hastalap/admin/users
 - Autenticación HTTP Basic con admin/admin
 
 ---

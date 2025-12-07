@@ -191,7 +191,7 @@ SERVICIOS:
 CONFIGURACIÓN:
   WAN: eth0
   LAN: eth1 (192.168.100.1)
-  Portal: https://portal.local
+  Portal: https://portal.hastalap
   Timeout: 3600s
 
 IPS AUTENTICADAS:
@@ -223,7 +223,7 @@ REGLAS IPTABLES:
 
 2. **Serás redirigido automáticamente** a:
    ```
-   https://portal.local/login
+  https://portal.hastalap/login
    ```
 
 3. **Ingresa credenciales por defecto:**
@@ -245,7 +245,7 @@ REGLAS IPTABLES:
 
 ```bash
 # En navegador cliente:
-https://portal.local/logout
+https://portal.hastalap/logout
 
 # Tu IP se remueve del ipset y pierdes acceso
 ```
@@ -324,7 +324,7 @@ sudo ip link set eth1 up
 sudo ip addr add 192.168.100.1/24 dev eth1
 ```
 
-### ❌ "Portal.local no resuelve en cliente"
+### ❌ "portal.hastalap no resuelve en cliente"
 
 ```bash
 # Verificar dnsmasq
@@ -334,7 +334,7 @@ sudo systemctl status dnsmasq
 sudo systemctl restart dnsmasq
 
 # En cliente, probar DNS:
-nslookup portal.local 192.168.100.1
+nslookup portal.hastalap 192.168.100.1
 ```
 
 ### ❌ "HTTPS muestra error de certificado"
@@ -343,7 +343,7 @@ nslookup portal.local 192.168.100.1
 - En navegador: Click en "Avanzado" → "Continuar de todas formas"
 - Con curl: Agregar `-k` para ignorar certificado
   ```bash
-  curl -k https://portal.local/login
+  curl -k https://portal.hastalap/login
   ```
 
 ### ❌ "Backend Python no inicia"

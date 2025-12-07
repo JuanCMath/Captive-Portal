@@ -330,7 +330,7 @@ EOF
 2. Dentro del cliente:
    • Se abrirá Chromium automáticamente
    • Intenta acceder a cualquier URL (ej: http://google.com)
-   • Serás redirigido al portal cautivo (https://portal.local/login)
+   • Serás redirigido al portal cautivo (https://portal.hastalap/login)
 
 3. Autentica con credenciales predeterminadas:
    Usuario: admin
