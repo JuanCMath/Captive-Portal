@@ -35,8 +35,8 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # Configuración por defecto
-: "${LAN_IF:=eth1}"
-: "${UPLINK_IF:=eth0}"
+: "${LAN_IF:=enp0s8}"
+: "${UPLINK_IF:=enp0s3}"
 : "${LAN_IP:=10.200.0.254}"
 : "${LAN_CIDR:=10.200.0.0/24}"
 : "${PORTAL_PORT:=8080}"
@@ -124,9 +124,9 @@ install_dependencies() {
 install_python_deps() {
   log_step "INSTALANDO DEPENDENCIAS DE PYTHON"
   
-  log_info "Instalando pip packages..."
-  pip3 install --quiet --no-warn-script-location requests >/dev/null 2>&1 || {
-    log_error "Error al instalar pip packages"
+  log_info "Instalando python packages..."
+  apt-get install python3-requests >/dev/null 2>&1 || {
+    log_error "Error al instalar python packages"
     exit 1
   }
   
@@ -258,6 +258,10 @@ bind-interfaces
 # Resolver el portal local
 address=/${CERT_CN}/${LAN_IP}
 
+# DNS servidores upstream (para resolver dominios reales)
+server=8.8.8.8
+server=8.8.4.4
+
 # Cache y performance
 cache-size=${DNS_CACHE_SIZE}
 no-poll
@@ -313,7 +317,7 @@ setup_nginx() {
   cat > /etc/nginx/sites-available/portal.conf <<'EOF'
 server {
     listen 80 default_server;
-    server_name _;
+    server_name portal.local _;
 
     # URLs de detección de portal cautivo
     location = /generate_204 {
@@ -367,7 +371,8 @@ server {
 EOF
 
   # Habilitar sitio
-  rm -f /etc/nginx/sites-enabled/default
+  # Eliminar cualquier sitio previamente habilitado para evitar 'duplicate default server'
+  rm -f /etc/nginx/sites-enabled/*
   ln -sf /etc/nginx/sites-available/portal.conf /etc/nginx/sites-enabled/portal.conf
   
   # Verificar sintaxis

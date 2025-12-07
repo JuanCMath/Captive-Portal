@@ -27,7 +27,7 @@ echo "==> Instalando portal cautivo..."
 
 # Instalar dependencias
 apt-get update -qq
-apt-get install -y iptables ipset dnsmasq nginx openssl python3 iproute2 curl >/dev/null 2>&1
+apt-get install -y iptables ipset dnsmasq nginx openssl python3 python3-requests iproute2 curl >/dev/null 2>&1
 
 # Crear estructura de directorios
 mkdir -p /opt/captive-portal
