@@ -133,21 +133,16 @@ iptables -t nat -F CP_REDIRECT
 iptables -t nat -A CP_REDIRECT -p tcp -j DNAT --to-destination "${LAN_IP}:${NGINX_HTTP_PORT}"
 
 # --- Orden correcto de reglas FORWARD ---
-
+# Limpiar reglas previas del portal cautivo
 iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src -j ACCEPT 2>/dev/null || true
-iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" \
-  -m set ! --match-set authed src -j REJECT --reject-with tcp-reset 2>/dev/null || true
-iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -j REJECT 2>/dev/null || true
+iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set ! --match-set authed src -j REJECT 2>/dev/null || true
 
-# AUTENTICADOS → Internet OK
+# Regla 1: AUTENTICADOS → TODO permitido (insertamos al PRINCIPIO)
 iptables -I FORWARD 1 -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src -j ACCEPT
 
-# NO autenticados → HTTPS Bloqueado
-iptables -A FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" \
-  -m set ! --match-set authed src -j REJECT --reject-with tcp-reset
-
-# NO autenticados → bloquear todo
-iptables -A FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -j REJECT
+# Regla 2: NO autenticados → TODO bloqueado (insertamos después de autenticados)
+# Esta regla bloquea TODO: HTTPS, HTTP (excepto el redirigido), ICMP, UDP, etc.
+iptables -I FORWARD 2 -i "$LAN_IF" -o "$UPLINK_IF" -m set ! --match-set authed src -j REJECT
 
 #####################################
 #        BACKEND PYTHON

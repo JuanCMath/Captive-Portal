@@ -121,11 +121,13 @@ cleanup_containers() {
 
 # Crear red Docker
 create_network() {
-  log_info "Verificando red Docker: $LAN_NET"
+  log_info "Preparando red Docker: $LAN_NET"
   
+  # Eliminar red anterior si existe (para limpiar caché de IPs)
   if docker network inspect "$LAN_NET" >/dev/null 2>&1; then
-    log_info "La red $LAN_NET ya existe"
-    return
+    log_info "Eliminando red anterior para limpiar caché de IPs..."
+    docker network rm "$LAN_NET" 2>/dev/null || true
+    sleep 1
   fi
   
   log_info "Creando red LAN..."
@@ -188,13 +190,12 @@ start_clients() {
   log_info "  [Cliente 1]"
   log_info "    - Nombre: client-1"
   log_info "    - Imagen: $CLIENT_IMAGE"
-  log_info "    - IP LAN: $CLIENT1_IP"
+  log_info "    - IP LAN: Dinámica (DHCP)"
   log_info "    - Puerto noVNC (local): $CLIENT1_PORT → 6081 (contenedor)"
   
   docker run -d \
     --name client-1 \
     --network "$LAN_NET" \
-    --ip "$CLIENT1_IP" \
     --cap-add=NET_ADMIN \
     --dns "$ROUTER_IP" \
     -e ROUTER_IP="$ROUTER_IP" \
@@ -217,13 +218,12 @@ start_clients() {
   log_info "  [Cliente 2]"
   log_info "    - Nombre: client-2"
   log_info "    - Imagen: $CLIENT_IMAGE"
-  log_info "    - IP LAN: $CLIENT2_IP"
+  log_info "    - IP LAN: Dinámica (DHCP)"
   log_info "    - Puerto noVNC (local): $CLIENT2_PORT → 6081 (contenedor)"
   
   docker run -d \
     --name client-2 \
     --network "$LAN_NET" \
-    --ip "$CLIENT2_IP" \
     --cap-add=NET_ADMIN \
     --dns "$ROUTER_IP" \
     -e ROUTER_IP="$ROUTER_IP" \
@@ -279,13 +279,13 @@ show_access_info() {
   
   echo -e "${GREEN}Cliente 1:${NC}"
   echo -e "  URL: ${BLUE}http://localhost:$CLIENT1_PORT/vnc.html${NC}"
-  echo -e "  IP en LAN: ${CYAN}$CLIENT1_IP${NC}"
+  echo -e "  IP en LAN: ${CYAN}Dinámica (DHCP)${NC}"
   echo -e "  • Primer cliente de prueba"
   echo -e "  • Accede con navegador Chromium\n"
   
   echo -e "${GREEN}Cliente 2:${NC}"
   echo -e "  URL: ${BLUE}http://localhost:$CLIENT2_PORT/vnc.html${NC}"
-  echo -e "  IP en LAN: ${CYAN}$CLIENT2_IP${NC}"
+  echo -e "  IP en LAN: ${CYAN}Dinámica (DHCP)${NC}"
   echo -e "  • Segundo cliente de prueba"
   echo -e "  • Simula múltiples usuarios simultáneos\n"
   

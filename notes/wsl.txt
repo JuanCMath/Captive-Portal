@@ -2,3 +2,29 @@ cd /mnt/c/Users/Juank/Proyectos/Captive-Portal/Docker
 
 
 CLIENTE → HTTPS (TLS cifrado) → NGINX → HTTP interno → BACKEND PYTHON
+
+
+
+iptables -t <tabla> -A <cadena> <condiciones> -j <acción>
+
+Tablas comunes
+
+filter (por defecto) → filtra paquetes
+
+nat → NAT, DNAT, SNAT
+
+mangle → modificar cabeceras
+
+raw → excepciones a conntrack
+
+Cadenas comunes
+
+INPUT (tráfico hacia el host)
+
+OUTPUT (salida del host)
+
+FORWARD (tráfico que atraviesa el host/router)
+
+PREROUTING (antes de decidir ruta)
+
+POSTROUTING (después de decidir ruta)
