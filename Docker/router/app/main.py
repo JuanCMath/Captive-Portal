@@ -3,9 +3,10 @@ import os
 import sys
 import json
 import mimetypes
+import queue
+import threading
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from socketserver import ThreadingMixIn
 from urllib.parse import urlparse, parse_qs
 from io import BufferedIOBase
 
@@ -16,6 +17,7 @@ from .config import AUTH_TIMEOUT
 
 APP_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = APP_ROOT / "static"
+
 
 def log(msg: str) -> None:
     print(msg, flush=True)
@@ -102,7 +104,7 @@ class PortalRequestHandler(BaseHTTPRequestHandler):
                 # ignoramos el cuerpo
                 pass
                 pass
-            
+
         # Guardamos el writer real y lo sustituimos por el dummy
         original_wfile = self.wfile
         try:
@@ -209,14 +211,67 @@ class PortalRequestHandler(BaseHTTPRequestHandler):
         self._send_response(404, body=b"Not Found")
 
 
-class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
-    daemon_threads = True
+class QueuedThreadPoolHTTPServer(HTTPServer):
+    """
+    HTTPServer con pool fijo de threads.
+    - El hilo principal acepta conexiones.
+    - process_request() encola (request_socket, client_address).
+    - 10 workers sacan de la cola y procesan finish_request().
+    """
+
+    def __init__(self, server_address, RequestHandlerClass, *, workers: int = 10, queue_size: int = 0):
+        super().__init__(server_address, RequestHandlerClass)
+
+        # queue_size=0 => cola "ilimitada" (FIFO).
+        # Si quieres limitarla (ej. 200) para backpressure más agresiva, pon queue_size>0.
+        self._q = queue.Queue(maxsize=queue_size) if queue_size and queue_size > 0 else queue.Queue()
+        self._workers: list[threading.Thread] = []
+        self._stopping = threading.Event()
+
+        for i in range(workers):
+            t = threading.Thread(target=self._worker_loop, name=f"cp-worker-{i+1}", daemon=True)
+            t.start()
+            self._workers.append(t)
+
+    def process_request(self, request, client_address):
+        """
+        Hook llamado por HTTPServer cuando ya aceptó una conexión.
+        Aquí NO atendemos: la metemos en cola.
+        Si la cola está llena, put() bloquea y aplica backpressure.
+        """
+        self._q.put((request, client_address))
+
+    def _worker_loop(self):
+        while not self._stopping.is_set():
+            item = self._q.get()
+            if item is None:
+                self._q.task_done()
+                break
+
+            request, client_address = item
+            try:
+                self.finish_request(request, client_address)
+                self.shutdown_request(request)
+            except Exception:
+                self.handle_error(request, client_address)
+                self.shutdown_request(request)
+            finally:
+                self._q.task_done()
+
+    def server_close(self):
+        # Señal de parada y “píldoras” para despertar a los workers
+        self._stopping.set()
+        for _ in self._workers:
+            self._q.put(None)
+        for t in self._workers:
+            t.join(timeout=1.0)
+        super().server_close()
 
 
 def run_server(port: int) -> None:
     addr = ("0.0.0.0", port)
-    httpd = ThreadingHTTPServer(addr, PortalRequestHandler)
-    log(f"Servidor HTTP escuchando en puerto {port}")
+    httpd = QueuedThreadPoolHTTPServer(addr, PortalRequestHandler, workers=10)
+    log(f"Servidor HTTP escuchando en puerto {port} (pool=10 + cola FIFO)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
