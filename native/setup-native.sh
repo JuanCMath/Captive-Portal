@@ -24,14 +24,15 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 APP_SOURCE="$REPO_ROOT/Docker/router/app"
 CERT_CN="portal.hastalap"
 
-echo "==> Instalando portal cautivo..."
+echo "==> Instalando portal cautivo (sin dnsmasq, usando isc-dhcp-server)..."
 echo ""
 
 # Instalar dependencias
 echo "====> Actualizando dependencias existentes..."
 apt-get update -qq
 echo "====> Instalando paquetes necesarios..."
-apt-get install -y iptables ipset dnsmasq nginx openssl python3 python3-requests iproute2 curl >/dev/null 2>&1
+apt-get install -y \
+  iptables ipset isc-dhcp-server nginx openssl python3 python3-requests iproute2 curl >/dev/null 2>&1
 
 # Crear estructura de directorios
 echo "====> Creando estructura de directorios..."
@@ -51,15 +52,13 @@ echo "====> Buscando archivo de configuración por defecto..."
 if [[ ! -f /etc/captive-portal/portal.conf ]]; then {
   echo "======> Creando  en /etc/captive-portal/portal.conf...";
   cat > /etc/captive-portal/portal.conf << EOF
-# Configuración del Portal Cautivo - Linux Nativo
+# Configuración del Portal Cautivo - Linux Nativo (DHCP con isc-dhcp-server)
 # Edita este archivo según tu topología de red
 
 # Interfaz WAN (conexión a Internet)
-# Ejemplos: enp0s3, eth0, wlan0
 UPLINK_IF=enp0s3
 
 # Interfaz LAN (red interna/clientes)
-# Ejemplos: enp0s8, eth1, wlan1
 LAN_IF=enp0s8
 
 # IP del portal en la LAN
@@ -75,22 +74,28 @@ PORTAL_PORT=8080
 NGINX_HTTP_PORT=80
 NGINX_HTTPS_PORT=443
 
-# Tamaño de caché DNS
-DNS_CACHE_SIZE=1000
-
 # Tiempo de sesión autenticada (segundos)
-# 3600 = 1 hora, 1800 = 30 minutos
 AUTH_TIMEOUT=3600
 
-# Nombre común del certificado TLS
-# Los clientes accederán a https://CERT_CN/
-CERT_CN=/${CERT_CN}
+# Nombre común del certificado TLS (no dependemos de DNS, pero queda como etiqueta)
+CERT_CN=portal.hastalap
 
 # Ruta de la aplicación Python
 APP_DIR=/opt/captive-portal
 
 # Archivo de usuarios (se crea automáticamente si no existe)
 USERS_FILE=/opt/captive-portal/app/users.json
+
+# DNS que se entregará por DHCP a los clientes (externo)
+DHCP_DNS_1=8.8.8.8
+DHCP_DNS_2=1.1.1.1
+
+# Rango DHCP (último octeto). Ej: 100-200 => 192.168.100.100-192.168.100.200
+DHCP_RANGE_START=100
+DHCP_RANGE_END=200
+
+# Duración de lease DHCP (ej: 12h, 1h, 30m)
+DHCP_LEASE=12h
 EOF
 }
 fi
@@ -105,14 +110,10 @@ chmod 755 /opt/captive-portal /var/log/captive-portal
 
 # Verificar instalación
 echo "====> Verificando instalación..."
-for cmd in iptables ipset dnsmasq nginx openssl python3; do
+for cmd in iptables ipset nginx openssl python3 isc-dhcp-server; do
   command -v "$cmd" >/dev/null || { echo "Error: falta $cmd"; exit 1; }
 done
 [[ -f /opt/captive-portal/app/main.py ]] || { echo "Error: app/main.py no encontrado"; exit 1; }
-
-# ============================================================================
-# RESUMEN Y PRÓXIMOS PASOS
-# ============================================================================
 
 echo "==> Instalación completada"
 echo "==> Edita /etc/captive-portal/portal.conf (puedes usar configure-interfaces.sh) y ejecuta start-portal.sh"

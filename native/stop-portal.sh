@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Detención del portal cautivo en Linux nativo
 # Uso: sudo ./stop-portal.sh
+#
+# Opción 2: isc-dhcp-server (DHCP) + DNS externo (sin dnsmasq)
 
 set -euo pipefail
 
-# Verificar root
 [[ $EUID -ne 0 ]] && { echo "Error: ejecutar como root"; exit 1; }
 
 # Detener backend Python
@@ -19,14 +20,13 @@ pkill -f "python3.*app.main" || true
 systemctl stop nginx 2>/dev/null || true
 rm -f /etc/nginx/sites-enabled/captive-portal
 
-# Detener dnsmasq
-killall dnsmasq 2>/dev/null || true
-rm -f /etc/dnsmasq.d/captive-portal.conf
+# Detener DHCP (isc-dhcp-server)
+systemctl stop isc-dhcp-server 2>/dev/null || true
 
 # Destruir ipset
 ipset destroy authed 2>/dev/null || true
 
-# Limpiar iptables
+# Limpiar iptables (usa config si existe)
 CONFIG_FILE="/etc/captive-portal/portal.conf"
 if [[ -f "$CONFIG_FILE" ]]; then
   source "$CONFIG_FILE"
@@ -53,12 +53,11 @@ iptables -F CP_FILTER 2>/dev/null || true
 iptables -t nat -X CP_REDIRECT 2>/dev/null || true
 iptables -X CP_FILTER 2>/dev/null || true
 
-# Eliminar reglas INPUT
+# Eliminar reglas INPUT (nginx + backend + DHCP)
 iptables -D INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j ACCEPT 2>/dev/null || true
 iptables -D INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j ACCEPT 2>/dev/null || true
 iptables -D INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j ACCEPT 2>/dev/null || true
-iptables -D INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT 2>/dev/null || true
-iptables -D INPUT -i "$LAN_IF" -p tcp --dport 53 -j ACCEPT 2>/dev/null || true
+iptables -D INPUT -i "$LAN_IF" -p udp --dport 67 -j ACCEPT 2>/dev/null || true
 
 echo "Portal cautivo detenido"
 exit 0
