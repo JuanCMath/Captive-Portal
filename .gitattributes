@@ -1,0 +1,8 @@
+# Fuerza finales de línea LF para archivos que se ejecutan en Linux,
+# independientemente del editor/SO usado para editarlos (evita el bug de
+# CRLF que rompía los scripts de native/ al ejecutarse con bash).
+*.sh text eol=lf
+*.py text eol=lf
+*.conf text eol=lf
+*.example text eol=lf
+Dockerfile text eol=lf
