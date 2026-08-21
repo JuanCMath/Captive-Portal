@@ -1,5 +1,14 @@
 [
-  {"u": "admin", "p": "admin"},
-  {"u": "alice", "p": "1234"},
-  {"u": "bob",   "p": "qwerty"}
+  {
+    "u": "admin",
+    "p": "pbkdf2_sha256$260000$ef6cb9f8f5409948d955c66b71a9799e$7af14c4a4ad618c8c4a9461fdd454c302e9a4354ef462dd2b640fa08866cf0a8"
+  },
+  {
+    "u": "alice",
+    "p": "pbkdf2_sha256$260000$26fd4704312884978843918aec134645$dceaeab1631c7bd710e1a3090cb7a219f6a4b5e0743463194929e96de27c90df"
+  },
+  {
+    "u": "bob",
+    "p": "pbkdf2_sha256$260000$f79462fd99cf1e649e43cffc63103f3d$ee2cb1180b3f943ac46868bbf797b5fca09bf83337c60bbf1c2bb426bed49a54"
+  }
 ]

@@ -7,7 +7,7 @@ sin dependencias externas (solo librerías estándar).
 import base64
 from typing import Optional, Tuple
 
-from .users import load_users
+from .users import check_credentials
 
 
 def parse_basic_auth(header_value: Optional[str]) -> Optional[Tuple[str, str]]:
@@ -33,9 +33,13 @@ def parse_basic_auth(header_value: Optional[str]) -> Optional[Tuple[str, str]]:
 
 def is_admin(username: str, password: str) -> bool:
     """
-    Comprueba si las credenciales corresponden al usuario 'admin'
-    definido en users.json o en USERS_JSON.
+    Comprueba si las credenciales corresponden al usuario 'admin'.
+
+    Solo la cuenta 'admin' puede acceder al panel de administración; el
+    resto de cuentas creadas desde el panel son exclusivamente para el
+    login del portal (acceso a Internet). La verificación de contraseña
+    usa comparación en tiempo constante sobre un hash (ver app/users.py).
     """
-    _, mapping = load_users()
-    stored = mapping.get(username)
-    return username == "admin" and stored is not None and stored == password
+    if username != "admin":
+        return False
+    return check_credentials(username, password)
