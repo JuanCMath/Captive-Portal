@@ -8,10 +8,13 @@ import html
 
 from .users import load_users, create_user, delete_user
 from .config import AUTH_TIMEOUT
+from . import security
 
 
-def _render_users_table(users: List[Dict[str, str]]) -> str:
+def _render_users_table(users: List[Dict[str, str]], csrf_token: str) -> str:
     rows = []
+    csrf_field = f'<input type="hidden" name="csrf_token" value="{html.escape(csrf_token)}" />'
+
     for u in users:
         username = str(u.get("u", ""))
         username_esc = html.escape(username)
@@ -23,6 +26,7 @@ def _render_users_table(users: List[Dict[str, str]]) -> str:
             role_html = '<span class="badge">usuario</span>'
             actions_html = f"""
             <form method="post" action="/admin/users/delete">
+                {csrf_field}
                 <input type="hidden" name="username" value="{username_esc}" />
                 <button type="submit">Eliminar</button>
             </form>
@@ -50,9 +54,10 @@ def _render_users_table(users: List[Dict[str, str]]) -> str:
     return "\n".join(rows)
 
 
-def render_admin_page(admin_user: str, message: Optional[str]) -> str:
+def render_admin_page(admin_user: str, message: Optional[str], csrf_token: str) -> str:
     users_list, _ = load_users()
-    users_html = _render_users_table(users_list)
+    users_html = _render_users_table(users_list, csrf_token)
+    csrf_field = f'<input type="hidden" name="csrf_token" value="{html.escape(csrf_token)}" />'
     msg_block = ""
     if message:
         msg_block = f"""
@@ -98,6 +103,7 @@ def render_admin_page(admin_user: str, message: Optional[str]) -> str:
         <div class="create-box">
           <h2>Nueva cuenta</h2>
           <form method="post" action="/admin/users/create">
+            {csrf_field}
             <div>
               <label for="new_username">Usuario</label>
               <input id="new_username" name="username"
@@ -105,7 +111,8 @@ def render_admin_page(admin_user: str, message: Optional[str]) -> str:
             </div>
             <div>
               <label for="new_password">Contraseña</label>
-              <input id="new_password" name="password" placeholder="••••••••" required />
+              <input id="new_password" name="password" placeholder="••••••••"
+                     type="password" minlength="8" required />
             </div>
             <div>
               <button type="submit">Crear</button>
@@ -127,11 +134,25 @@ def render_admin_page(admin_user: str, message: Optional[str]) -> str:
 """
 
 
-def handle_create_user(username: str, password: str) -> str:
+def handle_create_user(username: str, password: str, actor_ip: str) -> str:
     ok, msg = create_user(username, password)
+    security.audit_log(
+        "admin_create_user",
+        ip=actor_ip,
+        target_user=username,
+        result="ok" if ok else "error",
+        detail=msg,
+    )
     return msg
 
 
-def handle_delete_user(username: str) -> str:
+def handle_delete_user(username: str, actor_ip: str) -> str:
     ok, msg = delete_user(username)
+    security.audit_log(
+        "admin_delete_user",
+        ip=actor_ip,
+        target_user=username,
+        result="ok" if ok else "error",
+        detail=msg,
+    )
     return msg
