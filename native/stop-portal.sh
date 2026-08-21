@@ -56,8 +56,15 @@ iptables -X CP_FILTER 2>/dev/null || true
 # Eliminar reglas INPUT (nginx + backend + DHCP)
 iptables -D INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j ACCEPT 2>/dev/null || true
 iptables -D INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j ACCEPT 2>/dev/null || true
-iptables -D INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j ACCEPT 2>/dev/null || true
+iptables -D INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j DROP 2>/dev/null || true
+iptables -D INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j ACCEPT 2>/dev/null || true  # instalaciones antiguas
 iptables -D INPUT -i "$LAN_IF" -p udp --dport 67 -j ACCEPT 2>/dev/null || true
+
+# Eliminar reglas de bloqueo WAN añadidas por start-portal.sh
+iptables -D INPUT -i "$UPLINK_IF" -p tcp --dport "$PORTAL_PORT" -j DROP 2>/dev/null || true
+iptables -D INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j DROP 2>/dev/null || true
+iptables -D INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j DROP 2>/dev/null || true
+iptables -D INPUT -i "$UPLINK_IF" -p udp --dport 67 -j DROP 2>/dev/null || true
 
 echo "Portal cautivo detenido"
 exit 0

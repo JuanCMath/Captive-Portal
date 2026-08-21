@@ -205,9 +205,14 @@ setup_portal_rules() {
   iptables -A INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT 2>/dev/null || true
   iptables -A INPUT -i "$LAN_IF" -p tcp --dport 53 -j ACCEPT 2>/dev/null || true
   
-  log_info "Permitir backend Python en LAN"
-  iptables -A INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j ACCEPT 2>/dev/null || true
-  
+  log_info "Backend Python: solo accesible vía nginx (loopback), no directo desde la LAN"
+  # nginx hace proxy_pass a 127.0.0.1:$PORTAL_PORT; los clientes de la LAN
+  # NUNCA deben hablar directo con el backend. Si pudieran, alguien podría
+  # falsificar la cabecera X-Real-IP y suplantar la sesión de otra IP
+  # (el backend confía en esa cabecera solo cuando la conexión viene de
+  # loopback, pero bloqueamos aquí también por defensa en profundidad).
+  iptables -A INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j DROP 2>/dev/null || true
+
   log_info "Permitir HTTPS del portal"
   iptables -A INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j ACCEPT 2>/dev/null || true
   
@@ -227,7 +232,19 @@ setup_portal_rules() {
   log_info "Permitir tráfico autenticado"
   iptables -I FORWARD 1 -i "$LAN_IF" -o "$UPLINK_IF" \
     -m set --match-set authed src -j ACCEPT 2>/dev/null || true
-  
+
+  # IMPORTANTE: las reglas INPUT anteriores solo AÑADEN un ACCEPT para
+  # LAN_IF; con la política INPUT por defecto (normalmente ACCEPT) el
+  # backend Python, nginx (login/admin) y DNS quedarían igualmente
+  # alcanzables desde la interfaz WAN si el equipo tiene IP pública.
+  # Bloqueamos explícitamente esos puertos quando llegan por UPLINK_IF.
+  log_info "Bloquear panel/backend/DNS del portal desde la interfaz WAN"
+  iptables -A INPUT -i "$UPLINK_IF" -p tcp --dport "$PORTAL_PORT" -j DROP 2>/dev/null || true
+  iptables -A INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j DROP 2>/dev/null || true
+  iptables -A INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j DROP 2>/dev/null || true
+  iptables -A INPUT -i "$UPLINK_IF" -p udp --dport 53 -j DROP 2>/dev/null || true
+  iptables -A INPUT -i "$UPLINK_IF" -p tcp --dport 53 -j DROP 2>/dev/null || true
+
   log_success "Reglas de iptables configuradas"
 }
 

@@ -118,9 +118,12 @@ iptables -N CP_FILTER 2>/dev/null || true
 iptables -t nat -F CP_REDIRECT || true
 iptables -F CP_FILTER || true
 
-# Permitir backend Python en LAN
-iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j ACCEPT 2>/dev/null || \
-iptables -A INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j ACCEPT
+# Backend Python: solo accesible vía nginx (loopback), nunca directo desde
+# la LAN. nginx hace proxy_pass a 127.0.0.1:$PORTAL_PORT; si un cliente de
+# la LAN pudiera hablarle directo al backend, podría falsificar la
+# cabecera X-Real-IP y suplantar la sesión de otra IP.
+iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j DROP 2>/dev/null || \
+iptables -A INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j DROP
 
 # Redirigir NO autenticados HTTP 80 -> portal
 iptables -t nat -C PREROUTING -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" \
@@ -244,6 +247,16 @@ EOF
 
 iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j ACCEPT 2>/dev/null \
   || iptables -A INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j ACCEPT
+
+# Defensa en profundidad: si este router llega a tener también una IP
+# pública en UPLINK_IF (fuera del laboratorio Docker), evita que el panel
+# de administración y el backend queden expuestos a Internet.
+iptables -C INPUT -i "$UPLINK_IF" -p tcp --dport "$PORTAL_PORT" -j DROP 2>/dev/null \
+  || iptables -A INPUT -i "$UPLINK_IF" -p tcp --dport "$PORTAL_PORT" -j DROP
+iptables -C INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j DROP 2>/dev/null \
+  || iptables -A INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j DROP
+iptables -C INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j DROP 2>/dev/null \
+  || iptables -A INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j DROP
 
 log "Arrancando nginx"
 nginx -g "daemon off;" &

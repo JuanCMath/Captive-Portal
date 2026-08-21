@@ -132,8 +132,11 @@ iptables -N CP_FILTER 2>/dev/null || true
 iptables -t nat -F CP_REDIRECT 2>/dev/null || true
 iptables -F CP_FILTER 2>/dev/null || true
 
-# Permitir backend Python en LAN
-ensure_rule iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j ACCEPT || { log_error "No se pudo permitir backend $PORTAL_PORT"; exit 1; }
+# Backend Python: solo accesible vía nginx (loopback), nunca directo desde
+# la LAN. nginx hace proxy_pass a 127.0.0.1:$PORTAL_PORT; si un cliente de
+# la LAN pudiera hablarle directo al backend, podría falsificar la
+# cabecera X-Real-IP y suplantar la sesión de otra IP.
+ensure_rule iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j DROP || true
 
 # Redirigir HTTP de no autenticados al portal (nginx en 80)
 ensure_rule iptables -t nat -C PREROUTING -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" -m set ! --match-set authed src -j CP_REDIRECT || {
@@ -250,6 +253,15 @@ ln -sf /etc/nginx/sites-available/captive-portal /etc/nginx/sites-enabled/captiv
 # Permitir nginx en firewall
 ensure_rule iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j ACCEPT || { log_error "No se pudo permitir HTTP nginx $NGINX_HTTP_PORT"; exit 1; }
 ensure_rule iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j ACCEPT || { log_error "No se pudo permitir HTTPS nginx $NGINX_HTTPS_PORT"; exit 1; }
+
+# IMPORTANTE: las reglas anteriores solo ACEPTAN desde LAN_IF; con la
+# política INPUT por defecto (normalmente ACCEPT), el backend, nginx y DNS
+# quedarían igualmente alcanzables desde UPLINK_IF si el equipo tiene IP
+# pública. Bloqueamos explícitamente esos puertos por la interfaz WAN.
+ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p tcp --dport "$PORTAL_PORT" -j DROP || true
+ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j DROP || true
+ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j DROP || true
+ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p udp --dport 67 -j DROP || true
 
 nginx -t >/dev/null 2>&1
 systemctl restart nginx
