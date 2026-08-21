@@ -7,11 +7,12 @@ import mimetypes
 import queue
 import threading
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, unquote
 
 from . import portal
 from . import admin as admin_module
 from . import auth
+from . import security
 from .config import AUTH_TIMEOUT
 
 APP_ROOT = Path(__file__).resolve().parent
@@ -56,6 +57,16 @@ def build_response(status: int, headers: dict | None, body: bytes | None) -> byt
     # Si no hay Content-Type y hay body, ponemos text/html por defecto
     if body and not any(k.lower() == "content-type" for k in headers.keys()):
         headers["Content-Type"] = "text/html; charset=utf-8"
+
+    # Cabeceras de seguridad básicas (defensa en profundidad; nginx puede
+    # añadir además HSTS/CSP más estrictas por delante de este backend)
+    header_keys_lower = {k.lower() for k in headers.keys()}
+    if "x-content-type-options" not in header_keys_lower:
+        headers["X-Content-Type-Options"] = "nosniff"
+    if "x-frame-options" not in header_keys_lower:
+        headers["X-Frame-Options"] = "DENY"
+    if "referrer-policy" not in header_keys_lower:
+        headers["Referrer-Policy"] = "no-referrer"
 
     headers["Content-Length"] = str(len(body))
     # Cerramos conexión para simplificar HTTP/1.1 (sin keep-alive)
@@ -139,8 +150,22 @@ def parse_http_request(sock: socket.socket) -> tuple[str, str, dict, bytes]:
     return method, path, headers, body
 
 
+# Solo confiamos en X-Real-IP/X-Forwarded-For cuando la conexión TCP viene
+# realmente de nginx en loopback. El backend escucha en 0.0.0.0, así que
+# sin esta restricción cualquier cliente de la LAN que llegara directo al
+# puerto del backend (saltándose nginx) podría falsificar esas cabeceras y
+# hacerse pasar por la IP de otra persona: autenticarla sin sus
+# credenciales, o cerrarle la sesión (spoofing de identidad). El firewall
+# ya debería bloquear el acceso directo desde la LAN a este puerto (ver
+# native/*.sh y Docker/router/entrypoint.sh); esto es defensa en
+# profundidad por si esa regla llegara a faltar.
+_TRUSTED_PROXIES = {"127.0.0.1", "::1"}
+
+
 def client_ip_from_headers(headers: dict, peer_ip: str) -> str:
-    # Si viene de nginx, usa X-Real-IP / X-Forwarded-For; si no, peer_ip
+    if peer_ip not in _TRUSTED_PROXIES:
+        return peer_ip
+
     real_ip = headers.get("X-Real-IP") or headers.get("x-real-ip")
     if real_ip:
         return real_ip.strip()
@@ -157,26 +182,44 @@ def parse_form_urlencoded(body: bytes) -> dict:
 
 
 def handle_static(path: str) -> tuple[int, dict, bytes]:
-    rel = path[len("/static/") :]
-    # Evita traversal básico
-    if ".." in rel or "\\" in rel:
+    # Decodificamos %2e%2e, etc. ANTES de comprobar traversal
+    rel = unquote(path[len("/static/") :]).lstrip("/")
+
+    static_root_resolved = STATIC_ROOT.resolve()
+    try:
+        candidate = (STATIC_ROOT / rel).resolve()
+        # Confirma que la ruta resuelta sigue dentro de STATIC_ROOT
+        # (cubre "..", enlaces simbólicos y variantes con "\\" en Windows)
+        candidate.relative_to(static_root_resolved)
+    except (ValueError, OSError):
         return 404, {}, b"Not Found"
 
-    file_path = STATIC_ROOT / rel
-    if not file_path.is_file():
+    if not candidate.is_file():
         return 404, {}, b"Not Found"
 
-    ctype, _ = mimetypes.guess_type(str(file_path))
+    ctype, _ = mimetypes.guess_type(str(candidate))
     if not ctype:
         ctype = "application/octet-stream"
-    data = file_path.read_bytes()
+    data = candidate.read_bytes()
     return 200, {"Content-Type": ctype}, data
 
 
-def require_admin(headers: dict) -> tuple[bool, bytes]:
+def require_admin(headers: dict, client_ip: str) -> tuple[bool, bytes]:
+    blocked, retry_after = security.admin_limiter.is_blocked(client_ip)
+    if blocked:
+        body = f"Demasiados intentos. Vuelve a intentarlo en {retry_after}s.".encode("utf-8")
+        resp = build_response(
+            429,
+            {"Retry-After": str(retry_after), "Content-Type": "text/plain; charset=utf-8"},
+            body,
+        )
+        return False, resp
+
     auth_header = headers.get("Authorization") or headers.get("authorization")
     creds = auth.parse_basic_auth(auth_header)
     if not creds or not auth.is_admin(*creds):
+        security.admin_limiter.record_failure(client_ip)
+        security.audit_log("admin_auth_failed", ip=client_ip)
         body = b"Administracion - autenticacion requerida"
         resp = build_response(
             401,
@@ -187,6 +230,8 @@ def require_admin(headers: dict) -> tuple[bool, bytes]:
             body,
         )
         return False, resp
+
+    security.admin_limiter.record_success(client_ip)
     return True, b""
 
 
@@ -211,10 +256,12 @@ def route_request(method: str, raw_path: str, headers: dict, body: bytes, peer_i
     # GET
     if method == "GET":
         if path in ("/", "/login"):
+            csrf_token = security.issue_csrf_token(client_ip)
             html_body = portal.render_login_page(
                 client_ip=client_ip,
                 auth_timeout=AUTH_TIMEOUT,
                 error=None,
+                csrf_token=csrf_token,
             ).encode("utf-8")
             return build_response(200, {"Content-Type": "text/html; charset=utf-8"}, html_body)
 
@@ -231,12 +278,15 @@ def route_request(method: str, raw_path: str, headers: dict, body: bytes, peer_i
             return build_response(302, {"Location": "/admin/users"}, b"")
 
         if path == "/admin/users":
-            ok, resp = require_admin(headers)
+            ok, resp = require_admin(headers, client_ip)
             if not ok:
                 return resp
             # usuario admin para mostrar
             admin_user = "admin"
-            html_body = admin_module.render_admin_page(admin_user=admin_user, message=None).encode("utf-8")
+            csrf_token = security.issue_csrf_token(client_ip)
+            html_body = admin_module.render_admin_page(
+                admin_user=admin_user, message=None, csrf_token=csrf_token
+            ).encode("utf-8")
             return build_response(200, {"Content-Type": "text/html; charset=utf-8"}, html_body)
 
         return build_response(404, {}, b"Not Found")
@@ -267,28 +317,43 @@ def route_request(method: str, raw_path: str, headers: dict, body: bytes, peer_i
     if method == "POST":
         if path == "/login":
             form = parse_form_urlencoded(body)
-            status, hdrs, body_text = portal.process_login(client_ip, form)
+            csrf_token = (form.get("csrf_token") or [""])[0]
+            status, hdrs, body_text = portal.process_login(client_ip, form, csrf_token)
             hdrs = dict(hdrs or {})
             if status == 302 and "Location" not in hdrs:
                 hdrs["Location"] = "/status"
             return build_response(status, hdrs, (body_text or "").encode("utf-8"))
 
         if path in ("/admin/users/create", "/admin/users/delete"):
-            ok, resp = require_admin(headers)
+            ok, resp = require_admin(headers, client_ip)
             if not ok:
                 return resp
 
             form = parse_form_urlencoded(body)
+            csrf_token = (form.get("csrf_token") or [""])[0]
+
+            if not security.verify_csrf_token(client_ip, csrf_token):
+                msg = "El formulario expiró o no es válido. Recarga la página e inténtalo de nuevo."
+                html_body = admin_module.render_admin_page(
+                    admin_user="admin",
+                    message=msg,
+                    csrf_token=security.issue_csrf_token(client_ip),
+                ).encode("utf-8")
+                return build_response(400, {"Content-Type": "text/html; charset=utf-8"}, html_body)
+
             msg = None
             if path == "/admin/users/create":
                 username = (form.get("username") or [""])[0]
                 password = (form.get("password") or [""])[0]
-                msg = admin_module.handle_create_user(username, password)
+                msg = admin_module.handle_create_user(username, password, client_ip)
             else:
                 username = (form.get("username") or [""])[0]
-                msg = admin_module.handle_delete_user(username)
+                msg = admin_module.handle_delete_user(username, client_ip)
 
-            html_body = admin_module.render_admin_page(admin_user="admin", message=msg).encode("utf-8")
+            new_csrf_token = security.issue_csrf_token(client_ip)
+            html_body = admin_module.render_admin_page(
+                admin_user="admin", message=msg, csrf_token=new_csrf_token
+            ).encode("utf-8")
             return build_response(200, {"Content-Type": "text/html; charset=utf-8"}, html_body)
 
         if path == "/logout":
