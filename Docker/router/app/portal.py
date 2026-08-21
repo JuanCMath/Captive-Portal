@@ -7,11 +7,17 @@ from typing import Dict, List, Tuple, Optional
 import html
 
 from .config import AUTH_TIMEOUT
-from .users import load_users
+from .users import check_credentials
 from .ipset_utils import add_to_ipset, check_ipset, remove_from_ipset, get_remaining_timeout
+from . import security
 
 
-def render_login_page(client_ip: str, auth_timeout: int, error: Optional[str] = None) -> str:
+def render_login_page(
+    client_ip: str,
+    auth_timeout: int,
+    error: Optional[str] = None,
+    csrf_token: Optional[str] = None,
+) -> str:
     """Devuelve el HTML del formulario de login."""
     error_block = ""
     if error:
@@ -20,6 +26,8 @@ def render_login_page(client_ip: str, auth_timeout: int, error: Optional[str] = 
           {html.escape(error)}
         </div>
         """
+
+    csrf_field = f'<input type="hidden" name="csrf_token" value="{html.escape(csrf_token or "")}" />'
 
     return f"""<!doctype html>
 <html lang="es">
@@ -57,6 +65,7 @@ def render_login_page(client_ip: str, auth_timeout: int, error: Optional[str] = 
 
         <!-- Formulario de login -->
         <form method="post" action="/login" style="margin-top: 18px;">
+          {csrf_field}
           <div>
             <label for="username">Usuario</label>
             <input id="username"
@@ -94,29 +103,59 @@ def render_login_page(client_ip: str, auth_timeout: int, error: Optional[str] = 
 """
 
 
-def process_login(client_ip: str, form_data: Dict[str, List[str]]) -> Tuple[int, Dict[str, str], str]:
+def process_login(
+    client_ip: str,
+    form_data: Dict[str, List[str]],
+    csrf_token: Optional[str] = None,
+) -> Tuple[int, Dict[str, str], str]:
     """
     Procesa un POST /login.
 
     Devuelve (status_code, headers, body_html).
-    Para éxito, devuelve 302 + Location=/status.
+    Para éxito, devuelve 302 + Location=/status (relativo: nginx ya
+    terminó TLS, así que no dependemos de un dominio fijo).
     """
+    if not security.verify_csrf_token(client_ip, csrf_token or ""):
+        body = render_login_page(
+            client_ip=client_ip,
+            auth_timeout=AUTH_TIMEOUT,
+            error="El formulario expiró o no es válido. Recarga la página e inténtalo de nuevo.",
+            csrf_token=security.issue_csrf_token(client_ip),
+        )
+        return 400, {}, body
+
+    blocked, retry_after = security.login_limiter.is_blocked(client_ip)
+    if blocked:
+        security.audit_log("login_rate_limited", ip=client_ip)
+        body = render_login_page(
+            client_ip=client_ip,
+            auth_timeout=AUTH_TIMEOUT,
+            error=f"Demasiados intentos fallidos. Espera {retry_after}s antes de volver a intentarlo.",
+            csrf_token=security.issue_csrf_token(client_ip),
+        )
+        return 429, {}, body
+
     username = (form_data.get("username") or [""])[0]
     password = (form_data.get("password") or [""])[0]
 
-    _, mapping = load_users()
-    stored = mapping.get(username)
+    ok = check_credentials(username, password)
 
-    if stored is None or stored != password:
+    if not ok:
+        security.login_limiter.record_failure(client_ip)
+        security.audit_log("login_failed", ip=client_ip, user=username)
         body = render_login_page(
             client_ip=client_ip,
             auth_timeout=AUTH_TIMEOUT,
             error="Credenciales inválidas. Verifica usuario y contraseña.",
+            csrf_token=security.issue_csrf_token(client_ip),
         )
         return 401, {}, body
 
-    ok = add_to_ipset(client_ip)
-    if not ok:
+    security.login_limiter.record_success(client_ip)
+
+    added = add_to_ipset(client_ip)
+    if not added:
+        security.audit_log("login_ipset_error", ip=client_ip, user=username)
         body = """<html><body>
         <h1>Error en el portal</h1>
         <p>Estás autenticado, pero no se pudo registrar tu IP en el sistema.
@@ -124,8 +163,12 @@ def process_login(client_ip: str, form_data: Dict[str, List[str]]) -> Tuple[int,
         </body></html>"""
         return 500, {}, body
 
-    # OK → redirige a /status
-    headers = {"Location": "https://portal.hastalap/status"}
+    security.audit_log("login_success", ip=client_ip, user=username)
+
+    # Redirección relativa: conserva el esquema/host con el que el cliente
+    # ya está hablando (nginx), en vez de asumir un dominio fijo que puede
+    # no coincidir con CERT_CN si el despliegue lo personaliza.
+    headers = {"Location": "/status"}
     return 302, headers, ""
 
 
@@ -221,7 +264,7 @@ function formatTime(seconds) {
 function updateTimeDisplay() {
     const display = document.getElementById('time-display');
     display.textContent = formatTime(remainingSeconds);
-    
+
     // Advertencia visual si queda poco tiempo (menos de 5 minutos)
     if (remainingSeconds > 0 && remainingSeconds < 300) {
         display.classList.add('time-warning');
@@ -260,7 +303,7 @@ async function refreshStatus() {
             dot.classList.add('ok');
             text.textContent = "Conectado · acceso a Internet habilitado";
             logoutSection.classList.add('show');
-            
+
             // Actualizar tiempo restante real desde el servidor
             remainingSeconds = data.expires_in_seconds || 0;
             updateTimeDisplay();
@@ -318,9 +361,11 @@ def process_logout(client_ip: str) -> Tuple[int, Dict[str, str], str]:
     """
     ok = remove_from_ipset(client_ip)
     if ok:
+        security.audit_log("logout", ip=client_ip)
         headers = {"Location": "/login"}
         return 302, headers, ""
     else:
+        security.audit_log("logout_error", ip=client_ip)
         body = """<html><body>
         <h1>Error al cerrar sesión</h1>
         <p>No se pudo eliminar tu IP del sistema. Es posible que ya no estuvieras autenticado.</p>
