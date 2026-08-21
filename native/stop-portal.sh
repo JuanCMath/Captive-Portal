@@ -40,12 +40,12 @@ PORTAL_PORT="${PORTAL_PORT:-8080}"
 # Eliminar reglas FORWARD
 iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -j REJECT 2>/dev/null || true
 iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" \
-  -m set ! --match-set authed src -j REJECT --reject-with tcp-reset 2>/dev/null || true
-iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src -j ACCEPT 2>/dev/null || true
+  -m set ! --match-set authed src,src -j REJECT --reject-with tcp-reset 2>/dev/null || true
+iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src,src -j ACCEPT 2>/dev/null || true
 
 # Eliminar redirección NAT
 iptables -t nat -D PREROUTING -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" \
-  -m set ! --match-set authed src -j CP_REDIRECT 2>/dev/null || true
+  -m set ! --match-set authed src,src -j CP_REDIRECT 2>/dev/null || true
 
 # Eliminar cadenas personalizadas
 iptables -t nat -F CP_REDIRECT 2>/dev/null || true

@@ -124,7 +124,11 @@ log_info "DHCP activo: ${DHCP_START} - ${DHCP_END} (GW=${LAN_IP}, DNS=${DHCP_DNS
 # =========================
 # ipset para IPs autenticadas
 # =========================
-ipset create authed hash:ip timeout "${AUTH_TIMEOUT}" -exist
+# hash:ip,mac (no hash:ip): vincula la sesión a IP+MAC, no solo a la IP, para
+# que un dispositivo distinto que reciba la misma IP (p.ej. tras expirar un
+# lease DHCP) no herede la sesión de quien la tuvo antes.
+ipset destroy authed 2>/dev/null || true
+ipset create authed hash:ip,mac timeout "${AUTH_TIMEOUT}" -exist
 
 # Cadenas personalizadas
 iptables -t nat -N CP_REDIRECT 2>/dev/null || true
@@ -139,7 +143,7 @@ iptables -F CP_FILTER 2>/dev/null || true
 ensure_rule iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j DROP || true
 
 # Redirigir HTTP de no autenticados al portal (nginx en 80)
-ensure_rule iptables -t nat -C PREROUTING -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" -m set ! --match-set authed src -j CP_REDIRECT || {
+ensure_rule iptables -t nat -C PREROUTING -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" -m set ! --match-set authed src,src -j CP_REDIRECT || {
   log_error "No se pudo asegurar PREROUTING (HTTP→CP_REDIRECT)"; exit 1;
 }
 ensure_rule iptables -t nat -C CP_REDIRECT -p tcp -j DNAT --to-destination "${LAN_IP}:${NGINX_HTTP_PORT}" || {
@@ -147,20 +151,20 @@ ensure_rule iptables -t nat -C CP_REDIRECT -p tcp -j DNAT --to-destination "${LA
 }
 
 # Limpiar reglas FORWARD previas
-iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src -j ACCEPT 2>/dev/null || true
+iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src,src -j ACCEPT 2>/dev/null || true
 iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" \
-  -m set ! --match-set authed src -j REJECT --reject-with tcp-reset 2>/dev/null || true
+  -m set ! --match-set authed src,src -j REJECT --reject-with tcp-reset 2>/dev/null || true
 iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -j REJECT 2>/dev/null || true
 
 # Permitir autenticados, bloquear no autenticados
-if iptables -C FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src -j ACCEPT 2>/dev/null; then
+if iptables -C FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src,src -j ACCEPT 2>/dev/null; then
   :
 else
-  iptables -I FORWARD 1 -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src -j ACCEPT || { log_error "No se pudo insertar FORWARD ACCEPT"; exit 1; }
+  iptables -I FORWARD 1 -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src,src -j ACCEPT || { log_error "No se pudo insertar FORWARD ACCEPT"; exit 1; }
   log_info "Insertada regla FORWARD ACCEPT para autenticados"
 fi
 
-ensure_rule iptables -C FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -m set ! --match-set authed src -j REJECT --reject-with tcp-reset || {
+ensure_rule iptables -C FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -m set ! --match-set authed src,src -j REJECT --reject-with tcp-reset || {
   log_error "No se pudo asegurar REJECT HTTPS no autenticados"; exit 1;
 }
 ensure_rule iptables -C FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -j REJECT || { log_error "No se pudo asegurar REJECT general en FORWARD"; exit 1; }

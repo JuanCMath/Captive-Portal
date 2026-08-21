@@ -110,7 +110,11 @@ pgrep -x dnsmasq >/dev/null \
 #####################################
 
 log "Creando ipset authed"
-ipset create authed hash:ip timeout "${AUTH_TIMEOUT}" -exist
+# hash:ip,mac (no hash:ip): vincula la sesión a IP+MAC, no solo a la IP, para
+# que un dispositivo distinto que reciba la misma IP (p.ej. tras expirar un
+# lease DHCP) no herede la sesión de quien la tuvo antes.
+ipset destroy authed 2>/dev/null || true
+ipset create authed hash:ip,mac timeout "${AUTH_TIMEOUT}" -exist
 
 # Cadenas
 iptables -t nat -N CP_REDIRECT 2>/dev/null || true
@@ -127,9 +131,9 @@ iptables -A INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j DROP
 
 # Redirigir NO autenticados HTTP 80 -> portal
 iptables -t nat -C PREROUTING -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" \
-  -m set ! --match-set authed src -j CP_REDIRECT 2>/dev/null \
+  -m set ! --match-set authed src,src -j CP_REDIRECT 2>/dev/null \
   || iptables -t nat -A PREROUTING -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" \
-       -m set ! --match-set authed src -j CP_REDIRECT
+       -m set ! --match-set authed src,src -j CP_REDIRECT
 
 # CP_REDIRECT → DNAT hacia nginx:80
 iptables -t nat -F CP_REDIRECT
@@ -137,15 +141,15 @@ iptables -t nat -A CP_REDIRECT -p tcp -j DNAT --to-destination "${LAN_IP}:${NGIN
 
 # --- Orden correcto de reglas FORWARD ---
 # Limpiar reglas previas del portal cautivo
-iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src -j ACCEPT 2>/dev/null || true
-iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set ! --match-set authed src -j REJECT 2>/dev/null || true
+iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src,src -j ACCEPT 2>/dev/null || true
+iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set ! --match-set authed src,src -j REJECT 2>/dev/null || true
 
 # Regla 1: AUTENTICADOS → TODO permitido (insertamos al PRINCIPIO)
-iptables -I FORWARD 1 -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src -j ACCEPT
+iptables -I FORWARD 1 -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src,src -j ACCEPT
 
 # Regla 2: NO autenticados → TODO bloqueado (insertamos después de autenticados)
 # Esta regla bloquea TODO: HTTPS, HTTP (excepto el redirigido), ICMP, UDP, etc.
-iptables -I FORWARD 2 -i "$LAN_IF" -o "$UPLINK_IF" -m set ! --match-set authed src -j REJECT
+iptables -I FORWARD 2 -i "$LAN_IF" -o "$UPLINK_IF" -m set ! --match-set authed src,src -j REJECT
 
 #####################################
 #        BACKEND PYTHON

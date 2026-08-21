@@ -191,8 +191,11 @@ create_ipset() {
   # Eliminar si ya existe
   ipset destroy authed 2>/dev/null || true
   
-  # Crear ipset con timeout
-  ipset create authed hash:ip timeout "$AUTH_TIMEOUT" -exist
+  # Crear ipset con timeout. hash:ip,mac (no hash:ip): vincula la sesión a
+  # IP+MAC, no solo a la IP, para que un dispositivo distinto que reciba la
+  # misma IP (p.ej. tras expirar un lease DHCP) no herede la sesión de quien
+  # la tuvo antes.
+  ipset create authed hash:ip,mac timeout "$AUTH_TIMEOUT" -exist
   
   log_success "Ipset creado"
 }
@@ -218,20 +221,20 @@ setup_portal_rules() {
   
   log_info "Redirigir HTTP no autenticado → portal"
   iptables -t nat -A PREROUTING -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" \
-    -m set ! --match-set authed src -j DNAT --to-destination "${LAN_IP}:${NGINX_HTTP_PORT}" 2>/dev/null || true
+    -m set ! --match-set authed src,src -j DNAT --to-destination "${LAN_IP}:${NGINX_HTTP_PORT}" 2>/dev/null || true
   
   log_info "Bloquear HTTPS no autenticado"
   iptables -A FORWARD -i "$LAN_IF" -o "$UPLINK_IF" \
-    -p tcp --dport "$NGINX_HTTPS_PORT" -m set ! --match-set authed src \
+    -p tcp --dport "$NGINX_HTTPS_PORT" -m set ! --match-set authed src,src \
     -j REJECT --reject-with tcp-reset 2>/dev/null || true
   
   log_info "Bloquear todo el tráfico no autenticado"
   iptables -A FORWARD -i "$LAN_IF" -o "$UPLINK_IF" \
-    -m set ! --match-set authed src -j REJECT 2>/dev/null || true
+    -m set ! --match-set authed src,src -j REJECT 2>/dev/null || true
   
   log_info "Permitir tráfico autenticado"
   iptables -I FORWARD 1 -i "$LAN_IF" -o "$UPLINK_IF" \
-    -m set --match-set authed src -j ACCEPT 2>/dev/null || true
+    -m set --match-set authed src,src -j ACCEPT 2>/dev/null || true
 
   # IMPORTANTE: las reglas INPUT anteriores solo AÑADEN un ACCEPT para
   # LAN_IF; con la política INPUT por defecto (normalmente ACCEPT) el

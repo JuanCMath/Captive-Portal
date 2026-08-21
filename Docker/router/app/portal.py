@@ -8,7 +8,14 @@ import html
 
 from .config import AUTH_TIMEOUT
 from .users import check_credentials
-from .ipset_utils import add_to_ipset, check_ipset, remove_from_ipset, get_remaining_timeout
+from .ipset_utils import (
+    add_to_ipset,
+    check_ipset,
+    remove_from_ipset,
+    remove_from_ipset_by_ip,
+    get_remaining_timeout,
+)
+from .mac_utils import get_mac_for_ip
 from . import security
 
 
@@ -153,7 +160,23 @@ def process_login(
 
     security.login_limiter.record_success(client_ip)
 
-    added = add_to_ipset(client_ip)
+    mac = get_mac_for_ip(client_ip)
+    if not mac:
+        # Sin la MAC no podemos vincular la sesión al dispositivo (solo a la
+        # IP), que es justo lo que se quiere evitar: otro dispositivo que
+        # más adelante reciba esta misma IP heredaría la sesión. Es un
+        # estado transitorio normal (la entrada ARP puede tardar unos
+        # instantes) así que pedimos reintentar en vez de fallar duro.
+        security.audit_log("login_mac_lookup_error", ip=client_ip, user=username)
+        body = render_login_page(
+            client_ip=client_ip,
+            auth_timeout=AUTH_TIMEOUT,
+            error="No se pudo verificar tu dispositivo en la red. Espera unos segundos y vuelve a intentarlo.",
+            csrf_token=security.issue_csrf_token(client_ip),
+        )
+        return 503, {}, body
+
+    added = add_to_ipset(client_ip, mac)
     if not added:
         security.audit_log("login_ipset_error", ip=client_ip, user=username)
         body = """<html><body>
@@ -345,8 +368,15 @@ setInterval(refreshStatus, 30000);
 
 def get_status_json(client_ip: str) -> Dict[str, object]:
     """Devuelve el JSON con el estado de autenticación."""
-    authed = check_ipset(client_ip)
-    remaining = get_remaining_timeout(client_ip) if authed else 0
+    mac = get_mac_for_ip(client_ip)
+    if not mac:
+        return {
+            "client_ip": client_ip,
+            "authenticated": False,
+            "expires_in_seconds": 0,
+        }
+    authed = check_ipset(client_ip, mac)
+    remaining = get_remaining_timeout(client_ip, mac) if authed else 0
     return {
         "client_ip": client_ip,
         "authenticated": authed,
@@ -357,9 +387,10 @@ def get_status_json(client_ip: str) -> Dict[str, object]:
 def process_logout(client_ip: str) -> Tuple[int, Dict[str, str], str]:
     """
     Procesa un POST /logout.
-    Elimina la IP del ipset y redirige al login.
+    Elimina la sesión (IP+MAC) del ipset y redirige al login.
     """
-    ok = remove_from_ipset(client_ip)
+    mac = get_mac_for_ip(client_ip)
+    ok = remove_from_ipset(client_ip, mac) if mac else remove_from_ipset_by_ip(client_ip)
     if ok:
         security.audit_log("logout", ip=client_ip)
         headers = {"Location": "/login"}
