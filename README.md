@@ -576,6 +576,26 @@ Modificaciones críticas requeridas:
    - No exponer puertos noVNC (`6081`, `6091`) fuera de red de gestión
    - Implementar segmentación entre usuarios autenticados
 
+## Pruebas
+
+El backend (`Docker/router/app/`) tiene una batería de pruebas unitarias en
+`Docker/router/tests/`, con `unittest`/`unittest.mock` de la librería
+estándar (sin pytest ni otras dependencias, en línea con el resto del
+proyecto). `subprocess.run` se sustituye por un doble de prueba
+(`tests/fakes.py`) que reproduce el comportamiento real de `ip neigh`/`ipset`
+observado en pruebas end-to-end contra Docker — no se necesita `ipset`,
+`iptables` ni privilegios de root para correrlas.
+
+```bash
+cd Docker/router
+python -m unittest discover -s tests -t . -v
+```
+
+Cubren: vinculación de sesión a IP+MAC (`ipset_utils`, `portal`), CSRF y
+rate limiting, hash/migración de contraseñas y escritura atómica de
+`users.json`, autenticación HTTP Basic del panel admin, y el filtrado de
+`X-Real-IP`/path traversal en `main.py`.
+
 ## Troubleshooting
 
 ### Router no inicia correctamente
