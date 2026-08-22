@@ -65,6 +65,10 @@ Detalles de cada script, rutas y solución de problemas en `native/README.md`.
 
 ## Arquitectura del Sistema
 
+> Diagramas del flujo de autenticación y de la defensa contra suplantación
+> de MAC (el hallazgo de seguridad más importante del proyecto) en
+> [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md).
+
 ### Componentes Principales
 
 #### 1. **Router (Portal Cautivo)**
@@ -722,6 +726,8 @@ nada. Detalle completo en `native/README.md`.
 
 ## Documentación Adicional
 
+- **`docs/ARQUITECTURA.md`**: Diagramas del flujo de redirección/autenticación
+  y de la defensa contra suplantación de MAC (`hash:ip,mac`).
 - **`native/TLS.md`**: Certificado propio y Let's Encrypt en el despliegue
   nativo — los tres modos de TLS, cómo cambiar entre ellos y diagnóstico.
 - **`docs/SETUP_VM_VIRTUALBOX.md`**: Guía completa paso a paso para configurar 2 máquinas virtuales Ubuntu con VirtualBox (router + cliente) incluyendo:
