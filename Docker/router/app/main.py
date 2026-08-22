@@ -340,21 +340,21 @@ def route_request(method: str, raw_path: str, headers: dict, body: bytes, peer_i
                     admin_user="admin",
                     message=msg,
                     csrf_token=security.issue_csrf_token(client_ip),
+                    success=False,
                 ).encode("utf-8")
                 return build_response(400, {"Content-Type": "text/html; charset=utf-8"}, html_body)
 
-            msg = None
             if path == "/admin/users/create":
                 username = (form.get("username") or [""])[0]
                 password = (form.get("password") or [""])[0]
-                msg = admin_module.handle_create_user(username, password, client_ip)
+                ok, msg = admin_module.handle_create_user(username, password, client_ip)
             else:
                 username = (form.get("username") or [""])[0]
-                msg = admin_module.handle_delete_user(username, client_ip)
+                ok, msg = admin_module.handle_delete_user(username, client_ip)
 
             new_csrf_token = security.issue_csrf_token(client_ip)
             html_body = admin_module.render_admin_page(
-                admin_user="admin", message=msg, csrf_token=new_csrf_token
+                admin_user="admin", message=msg, csrf_token=new_csrf_token, success=ok
             ).encode("utf-8")
             return build_response(200, {"Content-Type": "text/html; charset=utf-8"}, html_body)
 

@@ -18,6 +18,21 @@ from .ipset_utils import (
 from .mac_utils import get_mac_for_ip
 from . import security
 
+# Ícono de marca inline (SVG): nada de imágenes/fuentes externas a
+# propósito -- esta página se sirve a clientes SIN autenticar, que no
+# tienen salida a Internet todavía, así que un recurso externo aquí
+# simplemente no cargaría.
+SHIELD_ICON = """<svg width="30" height="30" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Portal cautivo">
+  <defs>
+    <linearGradient id="brandGrad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#6366f1"/>
+    </linearGradient>
+  </defs>
+  <path d="M12 2 L20 5.5 V11 C20 16 16.5 20 12 22 C7.5 20 4 16 4 11 V5.5 Z" fill="url(#brandGrad)"/>
+  <path d="M8.5 12.2 L11 14.7 L16 9.5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>"""
+
 
 def render_login_page(
     client_ip: str,
@@ -29,7 +44,7 @@ def render_login_page(
     error_block = ""
     if error:
         error_block = f"""
-        <div class="helper" style="color: var(--danger); margin-top: 10px;">
+        <div class="error">
           {html.escape(error)}
         </div>
         """
@@ -43,21 +58,24 @@ def render_login_page(
     <title>Portal de acceso · Portal cautivo</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link href="/static/base.css" rel="stylesheet" />
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
 </head>
 <body>
+  <canvas id="net-bg" aria-hidden="true"></canvas>
   <div class="shell">
+    <div class="brand">
+      {SHIELD_ICON}
+      <span class="brand-name">Portal cautivo<small>Acceso a la red</small></span>
+    </div>
     <div class="card">
       <div class="card-inner">
-        <h1>
-          <span class="logo">CP</span>
-          Portal de acceso
-        </h1>
+        <h1>Iniciar sesión</h1>
 
         <!-- Pill de estado -->
         <div class="status-pill">
           <span class="dot"></span>
           <span>
-            Portal cautivo activo · IP {html.escape(client_ip)}
+            Sin autenticar · IP {html.escape(client_ip)}
           </span>
         </div>
 
@@ -71,7 +89,7 @@ def render_login_page(
         {error_block}
 
         <!-- Formulario de login -->
-        <form method="post" action="/login" style="margin-top: 18px;">
+        <form method="post" action="/login" style="margin-top: 18px;" id="login-form">
           {csrf_field}
           <div>
             <label for="username">Usuario</label>
@@ -93,18 +111,32 @@ def render_login_page(
           </div>
 
           <div>
-            <button type="submit">Iniciar sesión</button>
+            <button type="submit" id="login-btn">
+              <span class="spinner" aria-hidden="true"></span>
+              <span class="btn-label">Iniciar sesión</span>
+            </button>
           </div>
         </form>
 
         <!-- Enlaces útiles -->
         <div class="meta">
           <span><a href="/status">Ver estado de la sesión</a></span>
-          <span><a href="/admin/users">Panel de administración</a></span>
         </div>
       </div>
     </div>
+    <div class="admin-link"><a href="/admin/users">Panel de administración</a></div>
   </div>
+
+  <script>
+    // Feedback inmediato al enviar: las redes de un portal cautivo suelen
+    // ser lentas justo en este paso, y sin esto el clic parece no hacer nada.
+    document.getElementById('login-form').addEventListener('submit', function () {{
+      var btn = document.getElementById('login-btn');
+      btn.classList.add('is-loading');
+      btn.disabled = true;
+    }});
+  </script>
+  <script src="/static/network-bg.js"></script>
 </body>
 </html>
 """
@@ -200,32 +232,35 @@ def render_status_page() -> str:
     HTML de /status.
     No usa plantillas: el estado se obtiene vía JS desde /status.json.
     """
-    return """<!DOCTYPE html>
+    html_out = """<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Estado del Portal</title>
     <link rel="stylesheet" href="/static/base.css">
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
     <style>
         .btn-logout {
-            background: var(--danger, #dc3545);
-            margin-top: 16px;
+            background: var(--danger);
+            box-shadow: none;
+            margin-top: 4px;
         }
         .btn-logout:hover {
-            background: #c82333;
+            filter: brightness(1.08);
         }
         .time-display {
-            font-size: 1.4em;
-            font-weight: bold;
-            color: var(--accent, #0077cc);
+            font-size: 1.35rem;
+            font-weight: 650;
+            font-variant-numeric: tabular-nums;
+            color: var(--accent);
         }
         .time-warning {
-            color: var(--danger, #dc3545) !important;
+            color: var(--danger) !important;
         }
         #logout-section {
             display: none;
-            margin-top: 20px;
+            margin-top: 18px;
         }
         #logout-section.show {
             display: block;
@@ -233,8 +268,13 @@ def render_status_page() -> str:
     </style>
 </head>
 <body>
+<canvas id="net-bg" aria-hidden="true"></canvas>
 
 <div class="shell">
+  <div class="brand">
+    __SHIELD_ICON__
+    <span class="brand-name">Portal cautivo<small>Acceso a la red</small></span>
+  </div>
   <div class="card">
       <div class="card-inner">
         <h1>Estado de la sesión</h1>
@@ -261,9 +301,8 @@ def render_status_page() -> str:
             </form>
         </div>
 
-        <!-- Enlace al portal -->
-        <div class="admin-link">
-            <a href="/login">Volver al portal</a>
+        <div class="meta">
+          <span><a href="/login">Volver al portal</a></span>
         </div>
       </div>
   </div>
@@ -360,10 +399,12 @@ document.addEventListener('DOMContentLoaded', () => {
 // Refrescar estado cada 30 segundos (el countdown local mantiene la precisión)
 setInterval(refreshStatus, 30000);
 </script>
+<script src="/static/network-bg.js"></script>
 
 </body>
 </html>
 """
+    return html_out.replace("__SHIELD_ICON__", SHIELD_ICON)
 
 
 def get_status_json(client_ip: str) -> Dict[str, object]:
