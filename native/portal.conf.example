@@ -65,8 +65,27 @@ DHCP_LEASE=12h
 AUTH_TIMEOUT=3600
 
 # Nombre del certificado TLS (Common Name). dnsmasq resuelve este nombre a
-# LAN_IP para los clientes de la LAN.
+# LAN_IP para los clientes de la LAN. En modo TLS_MODE=letsencrypt, además
+# debe ser un dominio público de verdad (ver notas de TLS más abajo).
 CERT_CN=portal.hastalap
+
+# ============================================================================
+# TLS
+# ============================================================================
+
+# self-signed: certificado autofirmado, generado automáticamente (default).
+# letsencrypt: certbot emite y renueva un certificado real para CERT_CN.
+TLS_MODE=self-signed
+
+# Dónde vive el certificado/llave. En TLS_MODE=self-signed también sirve
+# para "traer tu propio certificado": si ya existen archivos aquí antes de
+# arrancar el portal, no se genera uno autofirmado, se usan tal cual.
+TLS_CERT_PATH=/etc/captive-portal/ssl/portal.crt
+TLS_KEY_PATH=/etc/captive-portal/ssl/portal.key
+
+# Correo para el registro con Let's Encrypt (avisos de expiración).
+# Obligatorio solo si TLS_MODE=letsencrypt.
+LETSENCRYPT_EMAIL=
 
 # ============================================================================
 # RUTAS DEL SISTEMA (fijadas por install.sh; normalmente no se tocan)
@@ -88,9 +107,16 @@ USERS_FILE=/opt/captive-portal/app/users.json
 #    (permisos 600). Cámbiala o crea más usuarios desde
 #    https://<CERT_CN>/admin/users.
 #
-# 3. TLS: certificado autofirmado, generado automáticamente en
-#    /etc/captive-portal/ssl/portal.{key,crt}. Los navegadores mostrarán una
-#    advertencia de seguridad -- normal en portales cautivos sin CA propia.
+# 3. TLS: tres formas de tener certificado (ver native/README.md para el
+#    detalle de cada una):
+#    - self-signed (default): autofirmado, advertencia de navegador normal.
+#    - Traer el tuyo: coloca tu cert/key en TLS_CERT_PATH/TLS_KEY_PATH antes
+#      de arrancar y no se regenera nada.
+#    - TLS_MODE=letsencrypt: certbot emite y renueva un certificado real
+#      para CERT_CN. Requiere que CERT_CN sea un dominio público que
+#      resuelva a este equipo y que el puerto 80 sea alcanzable desde
+#      Internet -- start-portal.sh abre esa excepción puntual en el
+#      firewall de la interfaz WAN solo en este modo.
 #
 # 4. LOGS: backend y auditoría en /var/log/captive-portal/,
 #    nginx en /var/log/nginx/, dnsmasq vía journalctl (systemd).

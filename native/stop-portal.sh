@@ -47,9 +47,11 @@ iptables -D INPUT -i "$LAN_IF" -p udp --dport 67 -j ACCEPT 2>/dev/null || true
 iptables -D INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT 2>/dev/null || true
 iptables -D INPUT -i "$LAN_IF" -p tcp --dport 53 -j ACCEPT 2>/dev/null || true
 
-# Eliminar reglas de bloqueo por la interfaz WAN
+# Eliminar reglas de bloqueo por la interfaz WAN (y la excepción de puerto
+# 80 que start-portal.sh pudo haber dejado en TLS_MODE=letsencrypt)
 iptables -D INPUT -i "$UPLINK_IF" -p tcp --dport "$PORTAL_PORT" -j DROP 2>/dev/null || true
 iptables -D INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j DROP 2>/dev/null || true
+iptables -D INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j ACCEPT 2>/dev/null || true
 iptables -D INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j DROP 2>/dev/null || true
 iptables -D INPUT -i "$UPLINK_IF" -p udp --dport 53 -j DROP 2>/dev/null || true
 iptables -D INPUT -i "$UPLINK_IF" -p tcp --dport 53 -j DROP 2>/dev/null || true

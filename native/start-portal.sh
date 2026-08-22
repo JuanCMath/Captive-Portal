@@ -27,6 +27,10 @@ source "$CONFIG_FILE"
 : "${AUTH_TIMEOUT:=3600}"
 : "${CERT_CN:=portal.hastalap}"
 : "${DNS_CACHE_SIZE:=1000}"
+: "${TLS_MODE:=self-signed}"
+: "${TLS_CERT_PATH:=/etc/captive-portal/ssl/portal.crt}"
+: "${TLS_KEY_PATH:=/etc/captive-portal/ssl/portal.key}"
+: "${LETSENCRYPT_EMAIL:=}"
 : "${DHCP_RANGE_START:=100}"
 : "${DHCP_RANGE_END:=200}"
 : "${DHCP_LEASE:=12h}"
@@ -144,21 +148,50 @@ ensure_rule iptables -C FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -j REJECT || { log_
 # =========================
 # nginx + TLS
 # =========================
-TLS_KEY="/etc/captive-portal/ssl/portal.key"
-TLS_CERT="/etc/captive-portal/ssl/portal.crt"
+# Rutas del certificado de Let's Encrypt (certbot las gestiona internamente
+# vía el symlink "live"; no cambian entre renovaciones).
+LE_CERT="/etc/letsencrypt/live/${CERT_CN}/fullchain.pem"
+LE_KEY="/etc/letsencrypt/live/${CERT_CN}/privkey.pem"
 
-if [[ ! -f "$TLS_KEY" || ! -f "$TLS_CERT" ]]; then
-  mkdir -p /etc/captive-portal/ssl
-  openssl req -x509 -nodes -newkey rsa:2048 -keyout "$TLS_KEY" -out "$TLS_CERT" \
+mkdir -p "$(dirname "$TLS_CERT_PATH")" "$(dirname "$TLS_KEY_PATH")"
+
+# Certificado autofirmado como base: sirve de default (TLS_MODE=self-signed)
+# y también de arranque inicial en TLS_MODE=letsencrypt, porque nginx
+# necesita *algún* certificado ya presente para levantar su bloque HTTPS
+# antes de que exista uno real (huevo y gallina con el reto ACME, que
+# necesita nginx ya corriendo). Si el admin ya colocó su propio cert/key
+# aquí ("traer el tuyo"), no se toca.
+if [[ ! -f "$TLS_KEY_PATH" || ! -f "$TLS_CERT_PATH" ]]; then
+  openssl req -x509 -nodes -newkey rsa:2048 -keyout "$TLS_KEY_PATH" -out "$TLS_CERT_PATH" \
     -days 365 -subj "/CN=${CERT_CN}" >/dev/null 2>&1
+fi
+
+if [[ "$TLS_MODE" == "letsencrypt" && -f "$LE_CERT" && -f "$LE_KEY" ]]; then
+  ACTIVE_CERT="$LE_CERT"
+  ACTIVE_KEY="$LE_KEY"
+else
+  ACTIVE_CERT="$TLS_CERT_PATH"
+  ACTIVE_KEY="$TLS_KEY_PATH"
 fi
 
 rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-enabled/captive-portal
 
-cat > /etc/nginx/sites-available/captive-portal <<EOF
+# Escribe /etc/nginx/sites-available/captive-portal apuntando al cert/key
+# recibidos. Se llama una vez con el certificado base (arriba) y, si
+# Let's Encrypt emite uno nuevo más abajo, otra vez con ese.
+write_nginx_conf() {
+  local cert="$1" key="$2"
+  cat > /etc/nginx/sites-available/captive-portal <<EOF
 server {
     listen ${NGINX_HTTP_PORT} default_server;
     server_name _;
+
+    # Reto ACME de Let's Encrypt (TLS_MODE=letsencrypt). Prefijo más
+    # específico que el resto de location de abajo, así que siempre gana
+    # cuando aplica. Inofensivo si no se usa: el directorio queda vacío.
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
 
     # --- Detección automática de portal cautivo ---
     location = /generate_204 {
@@ -194,8 +227,8 @@ server {
     listen ${NGINX_HTTPS_PORT} ssl http2 default_server;
     server_name ${CERT_CN};
 
-    ssl_certificate     ${TLS_CERT};
-    ssl_certificate_key ${TLS_KEY};
+    ssl_certificate     ${cert};
+    ssl_certificate_key ${key};
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
 
@@ -208,7 +241,9 @@ server {
     }
 }
 EOF
+}
 
+write_nginx_conf "$ACTIVE_CERT" "$ACTIVE_KEY"
 ln -sf /etc/nginx/sites-available/captive-portal /etc/nginx/sites-enabled/captive-portal
 
 ensure_rule iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j ACCEPT || { log_error "No se pudo permitir HTTP nginx"; exit 1; }
@@ -218,7 +253,22 @@ ensure_rule iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j
 # pública en UPLINK_IF, el panel/backend/DNS quedarían igual de alcanzables
 # desde ahí. Se bloquean explícitamente por la interfaz WAN.
 ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p tcp --dport "$PORTAL_PORT" -j DROP || true
-ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j DROP || true
+
+# El puerto 80 en WAN es la única excepción, y solo en TLS_MODE=letsencrypt:
+# Let's Encrypt necesita alcanzar este equipo por HTTP para validar el
+# dominio (reto ACME). 443/backend/DNS/DHCP en WAN siguen bloqueados
+# siempre, en cualquier modo. Se limpia el estado previo (DROP o ACCEPT)
+# antes de reaplicar, para que cambiar TLS_MODE entre corridas converja
+# bien y no deje ambas reglas puestas a la vez.
+iptables -D INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j DROP 2>/dev/null || true
+iptables -D INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j ACCEPT 2>/dev/null || true
+if [[ "$TLS_MODE" == "letsencrypt" ]]; then
+  ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j ACCEPT || { log_error "No se pudo abrir el puerto 80 en WAN para Let's Encrypt"; exit 1; }
+  log_info "TLS_MODE=letsencrypt: puerto 80 abierto en $UPLINK_IF para el reto ACME"
+else
+  ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j DROP || true
+fi
+
 ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j DROP || true
 ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p udp --dport 53 -j DROP || true
 ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p tcp --dport 53 -j DROP || true
@@ -227,6 +277,33 @@ ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p udp --dport 67 -j DROP || true
 nginx -t >/dev/null 2>&1 || { log_error "Configuración de nginx inválida"; exit 1; }
 systemctl enable nginx >/dev/null 2>&1 || true
 systemctl restart nginx
+
+# =========================
+# Let's Encrypt (si aplica)
+# =========================
+if [[ "$TLS_MODE" == "letsencrypt" && ! ( -f "$LE_CERT" && -f "$LE_KEY" ) ]]; then
+  if [[ -z "$LETSENCRYPT_EMAIL" ]]; then
+    log_error "TLS_MODE=letsencrypt requiere LETSENCRYPT_EMAIL en portal.conf"
+    exit 1
+  fi
+  log_info "Solicitando certificado Let's Encrypt para ${CERT_CN}..."
+  mkdir -p /var/log/captive-portal
+  if certbot certonly --webroot -w /var/www/certbot -d "$CERT_CN" \
+       -m "$LETSENCRYPT_EMAIL" --agree-tos --non-interactive \
+       --deploy-hook "systemctl reload nginx" \
+       >/var/log/captive-portal/certbot-issue.log 2>&1; then
+    log_info "Certificado emitido, recargando nginx con el certificado real"
+    write_nginx_conf "$LE_CERT" "$LE_KEY"
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx
+  else
+    log_error "No se pudo emitir el certificado Let's Encrypt (detalle en /var/log/captive-portal/certbot-issue.log). Seguimos con el autofirmado; verifica que ${CERT_CN} resuelva a este equipo y que el puerto 80 sea alcanzable desde Internet."
+  fi
+fi
+
+# certbot.timer (paquete Debian) reintenta la renovación dos veces al día;
+# el --deploy-hook de la emisión inicial queda grabado y se reutiliza en
+# cada renovación automática.
+systemctl enable --now certbot.timer >/dev/null 2>&1 || true
 
 # =========================
 # Backend (systemd)

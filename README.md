@@ -549,17 +549,18 @@ Modificaciones críticas requeridas:
    ```
    Habilitar contraseña con `-usepw` y configurarla previamente.
 
-2. **Certificados TLS válidos:**
-   - Utilizar Let's Encrypt para certificados firmados por CA de confianza
-   - Actualizar configuración de nginx para usar certificados reales
-   - Configurar renovación automática de certificados
+2. **Certificados TLS válidos:** ✅ implementado en el despliegue nativo
+   (`native/`) — `TLS_MODE=letsencrypt` en `portal.conf` emite y renueva
+   automáticamente un certificado real vía `certbot` (reto HTTP-01), con
+   una excepción de firewall acotada solo al puerto 80 en WAN. Ver
+   `native/README.md`, sección "TLS con Let's Encrypt". El despliegue
+   Docker (pensado para laboratorio, normalmente sin IP pública) sigue con
+   autofirmado o "trae tu propio certificado".
 
-3. **Hash de contraseñas:**
-   ```python
-   import bcrypt
-   hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
-   ```
-   Almacenar solo hashes en `users.json`.
+3. **Hash de contraseñas:** ✅ implementado — `PBKDF2-HMAC-SHA256`
+   (260 000 iteraciones, salt aleatorio por usuario) en `app/users.py`,
+   con comparación en tiempo constante y migración automática de
+   contraseñas en texto plano heredadas. Ver `CAMBIOS_SEGURIDAD.md`.
 
 4. **Restricción de capacidades Docker:**
    - Evitar `--privileged`

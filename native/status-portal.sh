@@ -25,6 +25,23 @@ else
 fi
 echo ""
 
+echo "TLS:"
+TLS_MODE="${TLS_MODE:-self-signed}"
+echo "  Modo: ${TLS_MODE}"
+if [[ "$TLS_MODE" == "letsencrypt" ]]; then
+  LE_CERT="/etc/letsencrypt/live/${CERT_CN:-portal.hastalap}/fullchain.pem"
+  if [[ -f "$LE_CERT" ]]; then
+    EXPIRY=$(openssl x509 -enddate -noout -in "$LE_CERT" 2>/dev/null | sed 's/notAfter=//')
+    echo "  Certificado Let's Encrypt: vigente, expira ${EXPIRY:-desconocido}"
+  else
+    echo "  Certificado Let's Encrypt: NO emitido todavía (usando autofirmado de respaldo)"
+  fi
+  systemctl is-active --quiet certbot.timer 2>/dev/null && echo "  Renovación automática (certbot.timer): activa" || echo "  Renovación automática (certbot.timer): inactiva"
+else
+  echo "  Certificado: autofirmado (o el que hayas colocado en TLS_CERT_PATH/TLS_KEY_PATH)"
+fi
+echo ""
+
 echo "SESIONES AUTENTICADAS (IP,MAC):"
 if ipset list authed >/dev/null 2>&1; then
   COUNT=$(ipset list authed | grep -c "^[0-9]" || echo 0)

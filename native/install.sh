@@ -36,10 +36,15 @@ echo "====> Instalando paquetes necesarios..."
 # Solo librería estándar de Python en tiempo de ejecución (ver pyproject.toml):
 # nada de python3-pip/python3-requests aquí, son deuda de una versión anterior.
 apt-get install -y --no-install-recommends \
-  iptables ipset dnsmasq nginx openssl python3 iproute2 curl sudo >/dev/null 2>&1
+  iptables ipset dnsmasq nginx openssl python3 iproute2 curl sudo certbot >/dev/null 2>&1
 
 echo "====> Creando estructura de directorios..."
 mkdir -p "$APP_DIR" "$CONFIG_DIR/ssl" "$LOG_DIR"
+
+# Webroot fijo para el reto ACME de Let's Encrypt (TLS_MODE=letsencrypt).
+# Inofensivo si no se usa: sin ese modo, nginx expone la ruta pero certbot
+# nunca corre y el directorio queda vacío.
+mkdir -p /var/www/certbot
 
 echo "====> Copiando la aplicación..."
 if [[ ! -d "$APP_SOURCE" ]]; then
@@ -120,7 +125,7 @@ systemctl daemon-reload
 systemctl enable captive-portal >/dev/null 2>&1
 
 echo "====> Verificando instalación..."
-for cmd in iptables ipset dnsmasq nginx openssl python3 sudo; do
+for cmd in iptables ipset dnsmasq nginx openssl python3 sudo certbot; do
   command -v "$cmd" >/dev/null || { echo "Error: falta $cmd" >&2; exit 1; }
 done
 [[ -f "$APP_DIR/app/main.py" ]] || { echo "Error: $APP_DIR/app/main.py no encontrado" >&2; exit 1; }
