@@ -13,11 +13,20 @@ que usa el despliegue Docker); el backend Python corre como servicio
 
 ## Instalación
 
+**Un solo comando** (desde la raíz del repositorio, no aquí en `native/`):
+
+```bash
+sudo bash install.sh
+```
+
+O paso a paso, para control fino:
+
 ```bash
 # 1. Instalar dependencias, copiar la app y registrar el servicio systemd
 sudo ./install.sh
 
-# 2. Elegir interfaces WAN/LAN y asignar la IP del portal (interactivo)
+# 2. Elegir interfaces WAN/LAN y asignar la IP del portal (interactivo; o
+#    exporta WAN_IF/LAN_IF/LAN_IP antes para saltarte el asistente)
 sudo ./configure-interfaces.sh
 
 # 3. Aplicar firewall e iniciar dnsmasq, nginx y el backend
@@ -28,17 +37,35 @@ sudo ./status-portal.sh
 ```
 
 `start-portal.sh` es seguro de volver a ejecutar (por ejemplo tras editar
-`portal.conf`): no duplica reglas de `iptables`.
+`portal.conf`): no duplica reglas de `iptables`. `install.sh` también es
+seguro de re-correr: preserva `users.json` y la contraseña inicial de admin
+aunque ya existan.
+
+## Actualizar el código
+
+```bash
+# Tras traer código nuevo del repositorio (git pull, o un checkout nuevo)
+sudo ./update.sh
+```
+
+Reemplaza solo el código de la aplicación — preserva `portal.conf`,
+usuarios, certificados TLS y reglas de firewall. Compara la versión del
+checkout actual (`pyproject.toml`) contra la instalada
+(`/etc/captive-portal/VERSION`, visible también en `status-portal.sh`) y no
+hace nada si ya coinciden. Si `start-portal.sh` necesita volver a correr
+tras la actualización (por ejemplo si hay variables nuevas en
+`portal.conf.example`), el propio script te lo indica al final.
 
 ## Scripts
 
 | Script | Descripción |
 |--------|-------------|
-| `install.sh` | Instalación inicial: paquetes, `/opt/captive-portal`, `portal.conf`, servicio systemd. Se ejecuta una vez. |
-| `configure-interfaces.sh` | Asistente interactivo para elegir WAN/LAN y escribirlas en `portal.conf`. |
+| `install.sh` | Instalación inicial: paquetes, `/opt/captive-portal`, `portal.conf`, servicio systemd. Segura de re-correr. |
+| `configure-interfaces.sh` | Elegir WAN/LAN y escribirlas en `portal.conf` — interactivo, o no interactivo vía `WAN_IF`/`LAN_IF`/`LAN_IP`. |
 | `start-portal.sh` | Aplica firewall/DNS/DHCP e inicia dnsmasq, nginx y el backend. |
 | `stop-portal.sh` | Detiene los servicios y limpia `iptables`/`ipset`. |
-| `status-portal.sh` | Estado de servicios, sesiones autenticadas y últimas líneas de log. |
+| `status-portal.sh` | Versión instalada, estado de servicios, sesiones autenticadas y últimas líneas de log. |
+| `update.sh` | Actualiza el código preservando configuración, usuarios y certificados. |
 
 ## Rutas
 
@@ -46,6 +73,7 @@ sudo ./status-portal.sh
 |-----|-------|
 | Aplicación | `/opt/captive-portal/app/` |
 | Configuración | `/etc/captive-portal/portal.conf` |
+| Versión instalada | `/etc/captive-portal/VERSION` |
 | Certificado TLS | Ver `TLS.md` — depende de `TLS_MODE` |
 | Usuarios | `/opt/captive-portal/app/users.json` |
 | Logs del backend / auditoría | `/var/log/captive-portal/` |

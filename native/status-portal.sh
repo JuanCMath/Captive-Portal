@@ -7,6 +7,10 @@
 echo "=== ESTADO DEL PORTAL CAUTIVO ==="
 echo ""
 
+echo "VERSIÓN:"
+echo "  Instalada: $(cat /etc/captive-portal/VERSION 2>/dev/null || echo 'desconocida (instalación previa a update.sh)')"
+echo ""
+
 echo "SERVICIOS:"
 systemctl is-active --quiet captive-portal 2>/dev/null && echo "  Backend (captive-portal): activo" || echo "  Backend (captive-portal): detenido"
 systemctl is-active --quiet nginx 2>/dev/null && echo "  nginx: activo" || echo "  nginx: detenido"

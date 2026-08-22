@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
-# Configuración interactiva de interfaces de red
+# Configuración de interfaces de red -- interactiva por defecto.
 # Uso: sudo ./configure-interfaces.sh
+#
+# Modo no interactivo (para instalaciones automatizadas, ej. install.sh en
+# la raíz del repo): exporta WAN_IF, LAN_IF y LAN_IP antes de invocar el
+# script y se salta los prompts de selección, usando esos valores
+# directamente (con la misma validación que el modo interactivo).
+# NETMASK es opcional en ese caso (default 24).
 
 set -euo pipefail
 
@@ -10,56 +16,67 @@ set -euo pipefail
 echo "=== CONFIGURACIÓN DE INTERFACES ==="
 echo ""
 
-# Detectar interfaces disponibles (excluir lo, docker, veth)
-INTERFACES=$(ip -o link show | awk -F': ' '{print $2}' | grep -v -E '^(lo|docker|veth|br-)' || true)
-[[ -z "$INTERFACES" ]] && { echo "Error: no hay interfaces disponibles"; exit 1; }
+NON_INTERACTIVE=0
+if [[ -n "${WAN_IF:-}" && -n "${LAN_IF:-}" && -n "${LAN_IP:-}" ]]; then
+  NON_INTERACTIVE=1
+  echo "Modo no interactivo: WAN_IF=$WAN_IF LAN_IF=$LAN_IF LAN_IP=$LAN_IP"
+  echo ""
+fi
 
-echo "Interfaces disponibles:"
-i=1
-declare -A IF_MAP
-while IFS= read -r iface; do
-  STATUS=$(ip link show "$iface" | grep -o "state [A-Z]*" | cut -d' ' -f2)
-  IP=$(ip -4 addr show "$iface" | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1 || echo "sin IP")
-  echo "  [$i] $iface ($STATUS, IP: $IP)"
-  IF_MAP[$i]=$iface
-  ((i++))
-done <<< "$INTERFACES"
-echo ""
+if [[ "$NON_INTERACTIVE" -eq 0 ]]; then
+  # Detectar interfaces disponibles (excluir lo, docker, veth)
+  INTERFACES=$(ip -o link show | awk -F': ' '{print $2}' | grep -v -E '^(lo|docker|veth|br-)' || true)
+  [[ -z "$INTERFACES" ]] && { echo "Error: no hay interfaces disponibles"; exit 1; }
 
-# Seleccionar WAN
-echo "PASO 1: Seleccionar interfaz WAN (Internet)"
-while true; do
-  read -p "Número de interfaz WAN: " wan_choice
-  if [[ -n "${IF_MAP[$wan_choice]:-}" ]]; then
-    WAN_IF="${IF_MAP[$wan_choice]}"
-    echo "WAN: $WAN_IF"
-    break
-  fi
-  echo "Opción inválida"
-done
-echo ""
+  echo "Interfaces disponibles:"
+  i=1
+  declare -A IF_MAP
+  while IFS= read -r iface; do
+    STATUS=$(ip link show "$iface" | grep -o "state [A-Z]*" | cut -d' ' -f2)
+    IP=$(ip -4 addr show "$iface" | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1 || echo "sin IP")
+    echo "  [$i] $iface ($STATUS, IP: $IP)"
+    IF_MAP[$i]=$iface
+    ((i++))
+  done <<< "$INTERFACES"
+  echo ""
 
-# Seleccionar LAN
-echo "PASO 2: Seleccionar interfaz LAN (clientes)"
-while true; do
-  read -p "Número de interfaz LAN: " lan_choice
-  if [[ -n "${IF_MAP[$lan_choice]:-}" ]]; then
-    LAN_IF="${IF_MAP[$lan_choice]}"
-    [[ "$LAN_IF" == "$WAN_IF" ]] && { echo "LAN debe ser diferente a WAN"; continue; }
-    echo "LAN: $LAN_IF"
-    break
-  fi
-  echo "Opción inválida"
-done
-echo ""
+  # Seleccionar WAN
+  echo "PASO 1: Seleccionar interfaz WAN (Internet)"
+  while true; do
+    read -p "Número de interfaz WAN: " wan_choice
+    if [[ -n "${IF_MAP[$wan_choice]:-}" ]]; then
+      WAN_IF="${IF_MAP[$wan_choice]}"
+      echo "WAN: $WAN_IF"
+      break
+    fi
+    echo "Opción inválida"
+  done
+  echo ""
 
-# Configurar IP LAN
-echo "PASO 3: Configurar IP de la LAN"
-read -p "IP del portal [192.168.100.1]: " LAN_IP
-LAN_IP="${LAN_IP:-192.168.100.1}"
+  # Seleccionar LAN
+  echo "PASO 2: Seleccionar interfaz LAN (clientes)"
+  while true; do
+    read -p "Número de interfaz LAN: " lan_choice
+    if [[ -n "${IF_MAP[$lan_choice]:-}" ]]; then
+      LAN_IF="${IF_MAP[$lan_choice]}"
+      [[ "$LAN_IF" == "$WAN_IF" ]] && { echo "LAN debe ser diferente a WAN"; continue; }
+      echo "LAN: $LAN_IF"
+      break
+    fi
+    echo "Opción inválida"
+  done
+  echo ""
+
+  # Configurar IP LAN
+  echo "PASO 3: Configurar IP de la LAN"
+  read -p "IP del portal [192.168.100.1]: " LAN_IP
+  LAN_IP="${LAN_IP:-192.168.100.1}"
+  read -p "Máscara [24]: " NETMASK
+else
+  [[ "$LAN_IF" == "$WAN_IF" ]] && { echo "Error: LAN_IF debe ser diferente de WAN_IF"; exit 1; }
+fi
+
 [[ ! "$LAN_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && { echo "Error: formato IP inválido"; exit 1; }
-
-read -p "Máscara [24]: " NETMASK
 NETMASK="${NETMASK:-24}"
 LAN_CIDR="${LAN_IP%.*}.0/$NETMASK"
 echo "Subred: $LAN_CIDR"
@@ -69,8 +86,10 @@ echo ""
 echo "PASO 4: Aplicar configuración"
 ip link set "$LAN_IF" up
 if ! ip addr show "$LAN_IF" | grep -q "$LAN_IP"; then
-  read -p "¿Eliminar IPs existentes en $LAN_IF? [s/N]: " remove_ips
-  [[ "$remove_ips" =~ ^[sS]$ ]] && ip addr flush dev "$LAN_IF"
+  if [[ "$NON_INTERACTIVE" -eq 0 ]]; then
+    read -p "¿Eliminar IPs existentes en $LAN_IF? [s/N]: " remove_ips
+    [[ "$remove_ips" =~ ^[sS]$ ]] && ip addr flush dev "$LAN_IF"
+  fi
   ip addr add "$LAN_IP/$NETMASK" dev "$LAN_IF"
   echo "IP $LAN_IP/$NETMASK añadida a $LAN_IF"
 fi

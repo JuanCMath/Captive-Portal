@@ -53,8 +53,23 @@ if [[ ! -d "$APP_SOURCE" ]]; then
   echo "(native/install.sh junto a Docker/router/app/)." >&2
   exit 1
 fi
+
+# users.json y admin_password_initial.txt viven dentro de app/ (no son
+# código, ver config.py) -- si este script se re-corre sobre una
+# instalación existente, se respaldan y restauran para no borrar cuentas
+# de usuario reales al reemplazar el código.
+DATA_BACKUP="$(mktemp -d)"
+for f in users.json admin_password_initial.txt; do
+  [[ -f "$APP_DIR/app/$f" ]] && cp "$APP_DIR/app/$f" "$DATA_BACKUP/$f"
+done
+
 rm -rf "$APP_DIR/app"
 cp -r "$APP_SOURCE" "$APP_DIR/app"
+
+for f in users.json admin_password_initial.txt; do
+  [[ -f "$DATA_BACKUP/$f" ]] && cp "$DATA_BACKUP/$f" "$APP_DIR/app/$f"
+done
+rm -rf "$DATA_BACKUP"
 
 echo "====> Creando usuario de sistema sin privilegios..."
 if ! id -u captive-portal >/dev/null 2>&1; then
@@ -123,6 +138,12 @@ EOF
 
 systemctl daemon-reload
 systemctl enable captive-portal >/dev/null 2>&1
+
+echo "====> Registrando versión instalada..."
+# pyproject.toml es la fuente de verdad de la versión del proyecto; se
+# copia a /etc/captive-portal/VERSION para no duplicarla en un archivo
+# aparte. update.sh la reescribe en cada actualización.
+grep -m1 '^version' "$REPO_ROOT/pyproject.toml" | sed -E 's/version = "(.*)"/\1/' > "$CONFIG_DIR/VERSION"
 
 echo "====> Verificando instalación..."
 for cmd in iptables ipset dnsmasq nginx openssl python3 sudo certbot; do

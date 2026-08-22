@@ -41,7 +41,18 @@ Consulta `notes/SETUP_VM_VIRTUALBOX.md` para instrucciones detalladas paso a pas
 
 ### Opción 3: Despliegue en Linux Nativo (Servidor)
 
-Para entornos de producción o máquinas Linux reales:
+Para entornos de producción o máquinas Linux reales, un solo comando desde
+la raíz del repositorio:
+
+```bash
+sudo bash install.sh
+```
+
+Encadena instalación de dependencias, configuración de red (asistente
+interactivo, o no interactivo si exportas `WAN_IF`/`LAN_IF`/`LAN_IP` antes),
+firewall y arranque de servicios. Para control fino (reinstalar un paso
+puntual, cambiar `TLS_MODE`, actualizar sin tocar red) usa los scripts de
+`native/` por separado:
 
 ```bash
 cd native
