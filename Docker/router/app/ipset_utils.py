@@ -1,14 +1,35 @@
 # app/ipset_utils.py
+import os
 import subprocess
 from typing import Optional
 from .config import AUTH_TIMEOUT
+
+
+def _ipset_cmd(*args: str) -> list[str]:
+    """
+    Construye el comando ipset a ejecutar. Si el proceso no corre como root
+    (despliegue nativo con el usuario de bajos privilegios
+    'captive-portal'), lo antepone con 'sudo -n': el sudoers generado por
+    native/install.sh solo autoriza exactamente estos subcomandos sobre el
+    conjunto 'authed'. En Docker, donde el backend sigue corriendo como
+    root dentro del contenedor, se invoca ipset directo (sudo ni siquiera
+    está instalado en esa imagen).
+    """
+    cmd = ["ipset", *args]
+    # os.geteuid solo existe en POSIX; en cualquier otra plataforma (donde
+    # ipset tampoco existiría) nos comportamos como si fuera root, es decir,
+    # sin anteponer sudo.
+    geteuid = getattr(os, "geteuid", None)
+    if geteuid is not None and geteuid() != 0:
+        cmd = ["sudo", "-n", *cmd]
+    return cmd
 
 
 def add_to_ipset(ip: str, mac: str) -> bool:
     """Añade el par IP,MAC al conjunto 'authed' con timeout."""
     try:
         subprocess.run(
-            ["ipset", "add", "authed", f"{ip},{mac}", "timeout", str(AUTH_TIMEOUT), "-exist"],
+            _ipset_cmd("add", "authed", f"{ip},{mac}", "timeout", str(AUTH_TIMEOUT), "-exist"),
             check=True,
         )
         return True
@@ -21,7 +42,7 @@ def check_ipset(ip: str, mac: str) -> bool:
     """Devuelve True si el par IP,MAC está actualmente en el ipset 'authed'."""
     try:
         res = subprocess.run(
-            ["ipset", "test", "authed", f"{ip},{mac}"],
+            _ipset_cmd("test", "authed", f"{ip},{mac}"),
             capture_output=True,
         )
         return res.returncode == 0
@@ -34,7 +55,7 @@ def remove_from_ipset(ip: str, mac: str) -> bool:
     """Elimina el par IP,MAC del conjunto 'authed' (logout)."""
     try:
         subprocess.run(
-            ["ipset", "del", "authed", f"{ip},{mac}"],
+            _ipset_cmd("del", "authed", f"{ip},{mac}"),
             check=True,
         )
         return True
@@ -52,7 +73,7 @@ def remove_from_ipset_by_ip(ip: str) -> bool:
     """
     try:
         res = subprocess.run(
-            ["ipset", "list", "authed"],
+            _ipset_cmd("list", "authed"),
             capture_output=True,
             text=True,
         )
@@ -65,7 +86,7 @@ def remove_from_ipset_by_ip(ip: str) -> bool:
             member = line.strip().split()[0] if line.strip() else ""
             if member.startswith(prefix):
                 del_res = subprocess.run(
-                    ["ipset", "del", "authed", member],
+                    _ipset_cmd("del", "authed", member),
                     capture_output=True,
                 )
                 if del_res.returncode == 0:
@@ -83,7 +104,7 @@ def get_remaining_timeout(ip: str, mac: str) -> int:
     """
     try:
         res = subprocess.run(
-            ["ipset", "list", "authed"],
+            _ipset_cmd("list", "authed"),
             capture_output=True,
             text=True,
         )

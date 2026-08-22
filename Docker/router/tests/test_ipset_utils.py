@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from app import ipset_utils
 from .fakes import FakeSystem
@@ -6,6 +7,38 @@ from .fakes import FakeSystem
 IP = "10.200.0.5"
 MAC = "aa:bb:cc:dd:ee:ff"
 OTHER_MAC = "11:22:33:44:55:66"
+
+
+class TestSudoPrefixing(unittest.TestCase):
+    """
+    ipset_utils._ipset_cmd decide si anteponer 'sudo -n' según el UID
+    efectivo del proceso -- root (Docker) llama a ipset directo, un
+    usuario sin privilegios (native/install.sh) necesita sudo. Ver el
+    sudoers generado por native/install.sh, que solo autoriza estos
+    subcomandos exactos sobre 'authed'.
+    """
+
+    def test_runs_ipset_directly_as_root(self):
+        fs = FakeSystem()
+        with fs.patch_subprocess(), patch("app.ipset_utils.os.geteuid", return_value=0, create=True):
+            ipset_utils.add_to_ipset(IP, MAC)
+        self.assertEqual(fs.calls[0][0], "ipset")
+
+    def test_prefixes_sudo_when_not_root(self):
+        fs = FakeSystem()
+        with fs.patch_subprocess(), patch("app.ipset_utils.os.geteuid", return_value=1000, create=True):
+            ipset_utils.add_to_ipset(IP, MAC)
+        self.assertEqual(fs.calls[0][:3], ["sudo", "-n", "ipset"])
+
+    def test_sudo_prefix_still_reaches_correct_ipset_subcommand(self):
+        # No solo que anteponga sudo: que el ipset_utils resultante siga
+        # funcionando de punta a punta (fakes.py despoja el prefijo antes
+        # de interpretar el comando).
+        fs = FakeSystem()
+        with fs.patch_subprocess(), patch("app.ipset_utils.os.geteuid", return_value=1000, create=True):
+            self.assertTrue(ipset_utils.add_to_ipset(IP, MAC))
+            self.assertTrue(ipset_utils.check_ipset(IP, MAC))
+            self.assertTrue(ipset_utils.remove_from_ipset(IP, MAC))
 
 
 class TestAddCheckRemove(unittest.TestCase):

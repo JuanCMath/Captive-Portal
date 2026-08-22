@@ -44,12 +44,18 @@ class FakeSystem:
         res.returncode = 0
         res.stdout = ""
 
-        if cmd[:3] == ["ip", "neigh", "show"]:
-            res.stdout = self._neigh_output(cmd[3])
+        # ipset_utils._ipset_cmd antepone 'sudo -n' cuando el proceso no
+        # corre como root (ver TestSudoPrefixing más abajo); lo ignoramos
+        # para interpretar el comando real, pero queda registrado en
+        # self.calls tal cual se invocó, para poder comprobarlo.
+        effective = cmd[2:] if cmd[:2] == ["sudo", "-n"] else cmd
+
+        if effective[:3] == ["ip", "neigh", "show"]:
+            res.stdout = self._neigh_output(effective[3])
             return res
 
-        if cmd and cmd[0] == "ipset":
-            return self._ipset(cmd, res)
+        if effective and effective[0] == "ipset":
+            return self._ipset(effective, res)
 
         raise AssertionError(f"comando no soportado por FakeSystem: {cmd}")
 
