@@ -1,5 +1,7 @@
 # Captive Portal
 
+[![Tests](https://github.com/JuanCMath/Captive-Portal/actions/workflows/tests.yml/badge.svg)](https://github.com/JuanCMath/Captive-Portal/actions/workflows/tests.yml)
+
 ## Descripción General
 
 Implementación de un portal cautivo (captive portal) que simula una red controlada con autenticación obligatoria. El sistema intercepta el tráfico HTTP de clientes no autenticados y los redirige a una página de inicio de sesión mediante reglas de iptables/ipset, permitiendo o bloqueando el acceso a Internet según el estado de autenticación del usuario.
@@ -486,7 +488,10 @@ estándar (sin pytest ni otras dependencias, en línea con el resto del
 proyecto). `subprocess.run` se sustituye por un doble de prueba
 (`tests/fakes.py`) que reproduce el comportamiento real de `ip neigh`/`ipset`
 observado en pruebas end-to-end contra Docker — no se necesita `ipset`,
-`iptables` ni privilegios de root para correrlas.
+`iptables` ni privilegios de root para correrlas. Corren automáticamente
+en cada push/PR vía GitHub Actions
+(`.github/workflows/tests.yml`, matriz Python 3.11/3.13), junto con un
+chequeo de sintaxis de todos los scripts `.sh` del repo.
 
 ```bash
 cd Docker/router
