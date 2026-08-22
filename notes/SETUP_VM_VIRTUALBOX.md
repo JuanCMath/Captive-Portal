@@ -387,27 +387,30 @@ git clone https://github.com/JuanCMath/Captive-Portal.git
 cd Captive-Portal
 ```
 
-**Ejecutar el script de instalación**:
+**Ejecutar los scripts de instalación** (carpeta `native/`, detalle en `native/README.md`):
 
 ```bash
-# El script está en la carpeta 'native'
-sudo bash native/install-router.sh
+cd native
+sudo ./install.sh                 # dependencias, app, servicio systemd
+sudo ./configure-interfaces.sh    # elegir WAN/LAN e IP del portal
+sudo ./start-portal.sh            # iptables/ipset + dnsmasq + nginx + backend
 ```
 
-Este script:
-- Instala todas las dependencias (iptables, dnsmasq, nginx, python3, etc.)
-- Configura iptables e ipset
-- Arranca los servicios necesarios
-- Crea un servicio systemd para que inicie automáticamente
+Entre los tres:
+- Instalan todas las dependencias (iptables, ipset, dnsmasq, nginx, python3)
+- Configuran iptables e ipset
+- Arrancan los servicios necesarios
+- Registran un servicio systemd (`captive-portal`) para que el backend
+  inicie automáticamente y se reinicie solo si falla
 
 **Verificar que todo funciona**:
 
 ```bash
 # Ver estado del servicio
-sudo systemctl status portal-cautivo
+sudo systemctl status captive-portal
 
 # Ver logs en tiempo real
-sudo journalctl -u portal-cautivo -f
+sudo journalctl -u captive-portal -f
 
 # Verificar puertos abiertos
 sudo ss -tlnp | grep -E "80|443|8080|53"
@@ -510,13 +513,13 @@ ip link show enp0s8  # Debe estar "UP"
 
 ```bash
 # En VM Router, ver logs
-sudo journalctl -u portal-cautivo -n 50
+sudo journalctl -u captive-portal -n 50
 
 # Verificar puertos
 sudo ss -tlnp | grep 8080
 
 # Reiniciar servicio
-sudo systemctl restart portal-cautivo
+sudo systemctl restart captive-portal
 ```
 
 ### Problema: DNS no resuelve
@@ -558,7 +561,7 @@ sudo iptables -L FORWARD -v | grep REJECT
 **Terminal 1 - Logs del portal**:
 
 ```bash
-sudo journalctl -u portal-cautivo -f
+sudo journalctl -u captive-portal -f
 ```
 
 **Terminal 2 - Tráfico de red**:
@@ -616,4 +619,4 @@ Una vez que todo funcione:
 
 ---
 
-**¡Listo! Ahora ejecuta el script `native/install-router.sh` en la VM Router y comienza las pruebas.**
+**¡Listo! Ahora ejecuta `native/install.sh` + `native/configure-interfaces.sh` + `native/start-portal.sh` en la VM Router y comienza las pruebas.**

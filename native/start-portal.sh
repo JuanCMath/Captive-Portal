@@ -1,23 +1,22 @@
 #!/usr/bin/env bash
-# Inicio del portal cautivo en Linux nativo
+# Aplica firewall/DNS/DHCP e inicia el portal cautivo en Linux nativo.
 # Uso: sudo ./start-portal.sh [config_file]
 #
-# Opción 2: DHCP con isc-dhcp-server + DNS externo (sin dnsmasq)
+# Idempotente: se puede volver a correr tras cambiar portal.conf sin
+# duplicar reglas de iptables (ver ensure_rule más abajo).
 
 set -euo pipefail
 
-# Verificar root
 [[ $EUID -ne 0 ]] && { echo "Error: ejecutar como root"; exit 1; }
 
-# Cargar configuración
 CONFIG_FILE="${1:-/etc/captive-portal/portal.conf}"
 [[ -f "$CONFIG_FILE" ]] || {
-  echo "Error: no existe $CONFIG_FILE. Ejecuta: sudo bash native/setup-native.sh"
+  echo "Error: no existe $CONFIG_FILE. Ejecuta primero: sudo ./install.sh"
   exit 1
 }
 source "$CONFIG_FILE"
 
-# Defaults
+# Defaults (por si portal.conf no define alguna clave)
 : "${UPLINK_IF:=enp0s3}"
 : "${LAN_IF:=enp0s8}"
 : "${LAN_IP:=192.168.100.1}"
@@ -27,20 +26,16 @@ source "$CONFIG_FILE"
 : "${NGINX_HTTPS_PORT:=443}"
 : "${AUTH_TIMEOUT:=3600}"
 : "${CERT_CN:=portal.hastalap}"
-: "${APP_DIR:=/opt/captive-portal}"
-: "${USERS_FILE:=/opt/captive-portal/app/users.json}"
-: "${DHCP_DNS_1:=8.8.8.8}"
-: "${DHCP_DNS_2:=1.1.1.1}"
+: "${DNS_CACHE_SIZE:=1000}"
 : "${DHCP_RANGE_START:=100}"
 : "${DHCP_RANGE_END:=200}"
 : "${DHCP_LEASE:=12h}"
 
-# Logging simple
 log_info() { echo "[INFO] $*"; }
 log_error() { echo "[ERROR] $*" >&2; }
 
-# Asegura que una regla iptables exista. Revisa que exista (con -C) y
-# prueba añadirla (con -A) si no la encuentra.
+# Asegura que una regla iptables exista: la comprueba con -C y, si no está,
+# la añade con -A. Repetir el script no duplica reglas.
 ensure_rule() {
   local check_cmd="$*"
   if eval "$check_cmd" >/dev/null 2>&1; then
@@ -48,22 +43,11 @@ ensure_rule() {
   fi
   local add_cmd="${check_cmd/ -C / -A }"
   if eval "$add_cmd" >/dev/null 2>&1; then
-    log_info "Regla iptable aplicada: ${add_cmd}"
+    log_info "Regla iptables aplicada: ${add_cmd}"
     return 0
   fi
-  log_error "Fallo al asegurar regla iptable. Intentos: ${check_cmd} ; ${add_cmd}"
+  log_error "Fallo al asegurar regla iptables. Intentos: ${check_cmd} ; ${add_cmd}"
   return 1
-}
-
-# Util: netmask simple para /8,/16,/24 (suficiente para laboratorio)
-cidr_to_netmask() {
-  local cidr="$1"
-  case "$cidr" in
-    8)  echo "255.0.0.0" ;;
-    16) echo "255.255.0.0" ;;
-    24) echo "255.255.255.0" ;;
-    *)  echo "255.255.255.0" ;; # fallback
-  esac
 }
 
 # Verificar interfaces
@@ -76,116 +60,89 @@ if ! ip addr show "$LAN_IF" | grep -q "$LAN_IP"; then
   ip link set "$LAN_IF" up
 fi
 
-# Habilitar IP forwarding
 sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1
 
 # =========================
 # NAT básico
 # =========================
-ensure_rule iptables -t nat -C POSTROUTING -o "$UPLINK_IF" -j MASQUERADE || { log_error "Cannot apply MASQUERADE, aborting."; exit 1; }
-ensure_rule iptables -C FORWARD -i "$UPLINK_IF" -o "$LAN_IF" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT || {
-  ensure_rule iptables -C FORWARD -i "$UPLINK_IF" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT || { log_error "No se puede aplicar FORWARD RELATED,ESTABLISHED"; exit 1; }
-}
+ensure_rule iptables -t nat -C POSTROUTING -o "$UPLINK_IF" -j MASQUERADE || { log_error "No se pudo aplicar MASQUERADE"; exit 1; }
+ensure_rule iptables -C FORWARD -i "$UPLINK_IF" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT || { log_error "No se pudo aplicar FORWARD RELATED,ESTABLISHED"; exit 1; }
 
 # =========================
-# DHCP con isc-dhcp-server
+# DNS + DHCP (dnsmasq)
 # =========================
-# Permitir DHCP (servidor escucha UDP/67 en LAN)
-ensure_rule iptables -C INPUT -i "$LAN_IF" -p udp --dport 67 -j ACCEPT || { log_error "No se pudo permitir DHCP (UDP/67)"; exit 1; }
-
-# Forzar que isc-dhcp-server escuche SOLO en LAN_IF
-cat > /etc/default/isc-dhcp-server <<EOF
-INTERFACESv4="${LAN_IF}"
-EOF
-
+mkdir -p /etc/dnsmasq.d
 LAN_PREFIX="${LAN_IP%.*}"
-CIDR_LEN="${LAN_CIDR##*/}"
-NETMASK="$(cidr_to_netmask "$CIDR_LEN")"
-
 DHCP_START="${LAN_PREFIX}.${DHCP_RANGE_START}"
 DHCP_END="${LAN_PREFIX}.${DHCP_RANGE_END}"
 
-cat > /etc/dhcp/dhcpd.conf <<EOF
-default-lease-time 43200;
-max-lease-time 43200;
-authoritative;
+cat > /etc/dnsmasq.d/captive-portal.conf <<EOF
+# === DNS ===
+listen-address=${LAN_IP}
+interface=${LAN_IF}
+bind-interfaces
+resolv-file=/etc/resolv.conf
+no-poll
+domain-needed
+bogus-priv
+cache-size=${DNS_CACHE_SIZE}
 
-subnet ${LAN_PREFIX}.0 netmask ${NETMASK} {
-  range ${DHCP_START} ${DHCP_END};
-  option routers ${LAN_IP};
-  option domain-name-servers ${DHCP_DNS_1}, ${DHCP_DNS_2};
-}
+# Resolver ${CERT_CN} al propio router
+address=/${CERT_CN}/${LAN_IP}
+
+# === DHCP ===
+dhcp-range=${DHCP_START},${DHCP_END},${DHCP_LEASE}
+dhcp-option=3,${LAN_IP}
+dhcp-option=6,${LAN_IP}
+dhcp-leasefile=/var/lib/misc/dnsmasq.leases
 EOF
 
-systemctl enable isc-dhcp-server >/dev/null 2>&1 || true
-systemctl restart isc-dhcp-server || { log_error "No se pudo iniciar isc-dhcp-server"; exit 1; }
-log_info "DHCP activo: ${DHCP_START} - ${DHCP_END} (GW=${LAN_IP}, DNS=${DHCP_DNS_1},${DHCP_DNS_2})"
+mkdir -p /var/lib/misc
+systemctl enable dnsmasq >/dev/null 2>&1 || true
+systemctl restart dnsmasq || { log_error "No se pudo iniciar dnsmasq"; exit 1; }
+log_info "DNS+DHCP activos: ${DHCP_START} - ${DHCP_END} (gateway/DNS=${LAN_IP}, dominio=${CERT_CN})"
+
+ensure_rule iptables -C INPUT -i "$LAN_IF" -p udp --dport 53 -j ACCEPT || { log_error "No se pudo permitir DNS UDP/53"; exit 1; }
+ensure_rule iptables -C INPUT -i "$LAN_IF" -p tcp --dport 53 -j ACCEPT || { log_error "No se pudo permitir DNS TCP/53"; exit 1; }
+ensure_rule iptables -C INPUT -i "$LAN_IF" -p udp --dport 67 -j ACCEPT || { log_error "No se pudo permitir DHCP UDP/67"; exit 1; }
 
 # =========================
-# ipset para IPs autenticadas
+# ipset + iptables (portal cautivo)
 # =========================
-# hash:ip,mac (no hash:ip): vincula la sesión a IP+MAC, no solo a la IP, para
-# que un dispositivo distinto que reciba la misma IP (p.ej. tras expirar un
-# lease DHCP) no herede la sesión de quien la tuvo antes.
-ipset destroy authed 2>/dev/null || true
+# hash:ip,mac (no hash:ip): vincula la sesión a IP+MAC, no solo a la IP,
+# para que un dispositivo distinto que reciba la misma IP (p.ej. tras
+# expirar un lease DHCP) no herede la sesión de quien la tuvo antes.
 ipset create authed hash:ip,mac timeout "${AUTH_TIMEOUT}" -exist
 
-# Cadenas personalizadas
 iptables -t nat -N CP_REDIRECT 2>/dev/null || true
-iptables -N CP_FILTER 2>/dev/null || true
-iptables -t nat -F CP_REDIRECT 2>/dev/null || true
-iptables -F CP_FILTER 2>/dev/null || true
+iptables -t nat -F CP_REDIRECT
 
 # Backend Python: solo accesible vía nginx (loopback), nunca directo desde
-# la LAN. nginx hace proxy_pass a 127.0.0.1:$PORTAL_PORT; si un cliente de
-# la LAN pudiera hablarle directo al backend, podría falsificar la
-# cabecera X-Real-IP y suplantar la sesión de otra IP.
+# la LAN -- si un cliente pudiera hablarle directo, podría falsificar
+# X-Real-IP y suplantar la sesión de otra IP.
 ensure_rule iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$PORTAL_PORT" -j DROP || true
 
-# Redirigir HTTP de no autenticados al portal (nginx en 80)
 ensure_rule iptables -t nat -C PREROUTING -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" -m set ! --match-set authed src,src -j CP_REDIRECT || {
-  log_error "No se pudo asegurar PREROUTING (HTTP→CP_REDIRECT)"; exit 1;
+  log_error "No se pudo asegurar PREROUTING (HTTP -> CP_REDIRECT)"; exit 1;
 }
 ensure_rule iptables -t nat -C CP_REDIRECT -p tcp -j DNAT --to-destination "${LAN_IP}:${NGINX_HTTP_PORT}" || {
   log_error "No se pudo asegurar DNAT en CP_REDIRECT"; exit 1;
 }
 
-# Limpiar reglas FORWARD previas
+# Limpiar reglas FORWARD previas del portal antes de reinsertarlas en orden
 iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src,src -j ACCEPT 2>/dev/null || true
 iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" \
   -m set ! --match-set authed src,src -j REJECT --reject-with tcp-reset 2>/dev/null || true
 iptables -D FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -j REJECT 2>/dev/null || true
 
-# Permitir autenticados, bloquear no autenticados
-if iptables -C FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src,src -j ACCEPT 2>/dev/null; then
-  :
-else
-  iptables -I FORWARD 1 -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src,src -j ACCEPT || { log_error "No se pudo insertar FORWARD ACCEPT"; exit 1; }
-  log_info "Insertada regla FORWARD ACCEPT para autenticados"
-fi
-
+iptables -I FORWARD 1 -i "$LAN_IF" -o "$UPLINK_IF" -m set --match-set authed src,src -j ACCEPT || { log_error "No se pudo insertar FORWARD ACCEPT"; exit 1; }
 ensure_rule iptables -C FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -m set ! --match-set authed src,src -j REJECT --reject-with tcp-reset || {
   log_error "No se pudo asegurar REJECT HTTPS no autenticados"; exit 1;
 }
 ensure_rule iptables -C FORWARD -i "$LAN_IF" -o "$UPLINK_IF" -j REJECT || { log_error "No se pudo asegurar REJECT general en FORWARD"; exit 1; }
 
 # =========================
-# Backend Python
-# =========================
-[[ -f "$APP_DIR/app/main.py" ]] || { echo "Error: no existe $APP_DIR/app/main.py"; exit 1; }
-pkill -f "python3.*app.main" || true
-sleep 1
-
-export AUTH_TIMEOUT="$AUTH_TIMEOUT"
-export USERS_FILE="$USERS_FILE"
-cd "$APP_DIR"
-python3 -u -m app.main "$PORTAL_PORT" >> /var/log/captive-portal/backend.log 2>&1 &
-PORTAL_PID=$!
-echo "$PORTAL_PID" > /var/run/captive-portal-backend.pid
-
-# =========================
 # nginx + TLS
-# (no dependemos de DNS: redirigimos por IP LAN)
 # =========================
 TLS_KEY="/etc/captive-portal/ssl/portal.key"
 TLS_CERT="/etc/captive-portal/ssl/portal.crt"
@@ -196,51 +153,51 @@ if [[ ! -f "$TLS_KEY" || ! -f "$TLS_CERT" ]]; then
     -days 365 -subj "/CN=${CERT_CN}" >/dev/null 2>&1
 fi
 
-rm -f /etc/nginx/sites-enabled/* 2>/dev/null || true
+rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-enabled/captive-portal
 
 cat > /etc/nginx/sites-available/captive-portal <<EOF
-# Portal Cautivo - HTTP (detección y redirección)
 server {
     listen ${NGINX_HTTP_PORT} default_server;
     server_name _;
 
-    location = /captive {
-        default_type text/html;
-        return 200 '<!doctype html><html><head><meta charset="utf-8"><title>Portal cautivo</title></head><body><h1>Red con portal cautivo</h1><p>Portal detectado.</p><p><a href="https://${LAN_IP}/login">Iniciar sesión</a></p></body></html>';
-    }
-
-    # Android
+    # --- Detección automática de portal cautivo ---
     location = /generate_204 {
-        return 302 https://${LAN_IP}/login;
+        return 204;  # Android
     }
-
-    # Windows
     location = /connecttest.txt {
-        return 302 https://${LAN_IP}/login;
+        default_type text/plain;
+        return 200 "Microsoft Connect Test";  # Windows
     }
     location = /ncsi.txt {
-        return 302 https://${LAN_IP}/login;
+        default_type text/plain;
+        return 200 "Microsoft NCSI";
     }
-
-    # Apple
     location = /hotspot-detect.html {
-        return 302 https://${LAN_IP}/login;
+        default_type text/html;
+        return 200 '<html><body>Success</body></html>';  # iOS/macOS
+    }
+    location = /check_network_status.txt {
+        default_type text/plain;
+        return 200 "NetworkManager";  # Linux/GNOME
+    }
+    location = /captive {
+        default_type text/html;
+        return 200 '<!doctype html><html><head><meta charset="utf-8"><title>Portal Cautivo</title></head><body><h1>Portal cautivo detectado</h1><p><a href="https://${CERT_CN}/login">Iniciar sesión</a></p></body></html>';
     }
 
-    # Todo lo demás -> HTTPS por IP
     location / {
-        return 302 https://${LAN_IP}\$request_uri;
+        return 302 https://${CERT_CN}\$request_uri;
     }
 }
 
-# Portal Cautivo - HTTPS (TLS)
 server {
-    listen ${NGINX_HTTPS_PORT} ssl;
-    server_name _;
+    listen ${NGINX_HTTPS_PORT} ssl http2 default_server;
+    server_name ${CERT_CN};
 
     ssl_certificate     ${TLS_CERT};
     ssl_certificate_key ${TLS_KEY};
     ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
 
     location / {
         proxy_pass http://127.0.0.1:${PORTAL_PORT};
@@ -254,25 +211,31 @@ EOF
 
 ln -sf /etc/nginx/sites-available/captive-portal /etc/nginx/sites-enabled/captive-portal
 
-# Permitir nginx en firewall
-ensure_rule iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j ACCEPT || { log_error "No se pudo permitir HTTP nginx $NGINX_HTTP_PORT"; exit 1; }
-ensure_rule iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j ACCEPT || { log_error "No se pudo permitir HTTPS nginx $NGINX_HTTPS_PORT"; exit 1; }
+ensure_rule iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j ACCEPT || { log_error "No se pudo permitir HTTP nginx"; exit 1; }
+ensure_rule iptables -C INPUT -i "$LAN_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j ACCEPT || { log_error "No se pudo permitir HTTPS nginx"; exit 1; }
 
-# IMPORTANTE: las reglas anteriores solo ACEPTAN desde LAN_IF; con la
-# política INPUT por defecto (normalmente ACCEPT), el backend, nginx y DNS
-# quedarían igualmente alcanzables desde UPLINK_IF si el equipo tiene IP
-# pública. Bloqueamos explícitamente esos puertos por la interfaz WAN.
+# Las reglas anteriores solo ACEPTAN desde LAN_IF; si el equipo tiene IP
+# pública en UPLINK_IF, el panel/backend/DNS quedarían igual de alcanzables
+# desde ahí. Se bloquean explícitamente por la interfaz WAN.
 ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p tcp --dport "$PORTAL_PORT" -j DROP || true
 ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTP_PORT" -j DROP || true
 ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p tcp --dport "$NGINX_HTTPS_PORT" -j DROP || true
+ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p udp --dport 53 -j DROP || true
+ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p tcp --dport 53 -j DROP || true
 ensure_rule iptables -C INPUT -i "$UPLINK_IF" -p udp --dport 67 -j DROP || true
 
-nginx -t >/dev/null 2>&1
+nginx -t >/dev/null 2>&1 || { log_error "Configuración de nginx inválida"; exit 1; }
+systemctl enable nginx >/dev/null 2>&1 || true
 systemctl restart nginx
 
+# =========================
+# Backend (systemd)
+# =========================
+systemctl restart captive-portal || { log_error "No se pudo iniciar el servicio captive-portal"; exit 1; }
+
+echo ""
 echo "Portal cautivo iniciado"
-echo "URL (por IP): https://${LAN_IP}/login"
-echo "Backend PID: $PORTAL_PID"
-echo "LAN: $LAN_CIDR (Gateway: $LAN_IP)"
-echo "Timeout: ${AUTH_TIMEOUT}s"
+echo "URL: https://${CERT_CN}/login"
+echo "LAN: $LAN_CIDR (gateway/DNS: $LAN_IP)"
+echo "Timeout de sesión: ${AUTH_TIMEOUT}s"
 exit 0

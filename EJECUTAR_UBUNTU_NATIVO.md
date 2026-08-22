@@ -31,18 +31,20 @@ Si solo quieres empezar:
 
 ```bash
 # 1. Descargar proyecto
-cd ~/Proyectos/Captive-Portal
+cd ~/Proyectos/Captive-Portal/native
 
-# 2. Instalación automática (instala todas las dependencias)
-sudo bash native/install-router.sh
+# 2. Instalación + configuración de red + arranque
+sudo ./install.sh
+sudo ./configure-interfaces.sh
+sudo ./start-portal.sh
 
 # ✅ Listo. El portal está corriendo
 
 # Ver estado
-sudo bash native/status-portal.sh
+sudo ./status-portal.sh
 ```
 
-**¡Ese es todo el proceso!** El script `install-router.sh` hace CASI TODO automáticamente. Ver detalles abajo.
+**¡Ese es todo el proceso!** Los scripts de `native/` hacen CASI TODO automáticamente. Ver detalles abajo.
 
 ---
 
@@ -69,41 +71,39 @@ scp -r "C:\Users\Juank\Proyectos\Captive-Portal" usuario@ubuntu-ip:~/Proyectos/
 ```bash
 cd ~/Proyectos/Captive-Portal
 ls -la native/
-# Debe mostrar: install-router.sh, setup-native.sh, start-portal.sh, etc.
+# Debe mostrar: install.sh, configure-interfaces.sh, start-portal.sh, etc.
 ```
 
 ---
 
-## 🛠️ Paso 2: Ejecutar Script de Instalación COMPLETO
+## 🛠️ Paso 2: Instalar y Arrancar
 
-El script **`install-router.sh`** hace TODO automáticamente:
+Tres scripts, cada uno con una responsabilidad (instalar una vez, elegir
+interfaces, arrancar/re-arrancar sin duplicar reglas):
 
 ```bash
-cd ~/Proyectos/Captive-Portal
-sudo bash native/install-router.sh
+cd ~/Proyectos/Captive-Portal/native
+sudo ./install.sh
+sudo ./configure-interfaces.sh
+sudo ./start-portal.sh
 ```
 
-### ¿Qué hace automáticamente?
+### ¿Qué hacen?
 
-✅ **Instalación de dependencias:**
+✅ **`install.sh` — instalación de dependencias:**
 - `iptables`, `ipset` (firewall)
-- `dnsmasq` (DNS)
+- `dnsmasq` (DNS + DHCP)
 - `nginx` (proxy HTTPS)
 - `python3` (backend)
-- Y más...
+- Copia la app a `/opt/captive-portal` y registra el servicio systemd `captive-portal`
 
-✅ **Configuración automática:**
-- Habilita IP forwarding
-- Configura NAT
-- Crea reglas de firewall
+✅ **`configure-interfaces.sh` — elegir WAN/LAN** (interactivo, escribe en `portal.conf`)
+
+✅ **`start-portal.sh` — configuración y arranque:**
+- Habilita IP forwarding y NAT
+- Crea reglas de firewall (`iptables`/`ipset`, idempotente)
 - Genera certificado TLS autofirmado
-- Crea estructura de directorios
-
-✅ **Inicia automáticamente:**
-- Backend Python
-- nginx
-- dnsmasq
-- iptables rules
+- Inicia `dnsmasq`, `nginx` y el backend (`systemctl start captive-portal`)
 
 ### Output esperado:
 ```
@@ -406,12 +406,11 @@ cat /etc/captive-portal/portal.conf
 
 | Script | Función |
 |--------|---------|
-| `install-router.sh` | **INSTALACIÓN COMPLETA** - ejecuta TODO |
-| `setup-native.sh` | Instalar dependencias (sin iniciar) |
+| `install.sh` | Instalar dependencias, copiar app, registrar servicio systemd (una vez) |
+| `configure-interfaces.sh` | Elegir WAN/LAN e IP del portal (interactivo) |
 | `start-portal.sh` | Iniciar portal |
 | `stop-portal.sh` | Detener portal |
 | `status-portal.sh` | Ver estado |
-| `configure-interfaces.sh` | Configurar interfaces interactivamente |
 
 ### Configuración del Sistema (instalada en `/etc/`)
 
@@ -514,12 +513,10 @@ ps aux | grep -E "python3|nginx|dnsmasq" | grep -v grep
 
 ## ✨ Próximos Pasos (Opcional/Avanzado)
 
-- Configurar DHCP para asignar IPs automáticas a clientes
-- Agregar más usuarios a `users.json`
+- Agregar más usuarios desde el panel `/admin/users`
 - Personalizar páginas HTML del portal
 - Usar certificado SSL válido (Let's Encrypt)
 - Integrar base de datos (PostgreSQL, MySQL)
-- Crear systemd service para autostart
 
 ---
 

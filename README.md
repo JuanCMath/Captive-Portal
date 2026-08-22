@@ -31,8 +31,10 @@ Para pruebas en VMs con aislamiento completo:
 3. **Configurar red** en ambas VMs
 4. **Instalar en VM Router**:
    ```bash
-   cd ~/Captive-Portal
-   sudo bash native/install-router.sh
+   cd ~/Captive-Portal/native
+   sudo ./install.sh                 # dependencias, app, servicio systemd
+   sudo ./configure-interfaces.sh    # elegir WAN/LAN e IP del portal
+   sudo ./start-portal.sh            # firewall + dnsmasq + nginx + backend
    ```
 
 Consulta `notes/SETUP_VM_VIRTUALBOX.md` para instrucciones detalladas paso a paso.
@@ -42,10 +44,13 @@ Consulta `notes/SETUP_VM_VIRTUALBOX.md` para instrucciones detalladas paso a pas
 Para entornos de producción o máquinas Linux reales:
 
 ```bash
-sudo bash native/install-router.sh
+cd native
+sudo ./install.sh
+sudo ./configure-interfaces.sh
+sudo ./start-portal.sh
 ```
 
-Este script instala todas las dependencias e inicia el portal automáticamente.
+Detalles de cada script, rutas y solución de problemas en `native/README.md`.
 
 ## Arquitectura del Sistema
 
@@ -54,7 +59,7 @@ Este script instala todas las dependencias e inicia el portal automáticamente.
 #### 1. **Router (Portal Cautivo)**
 Contenedor que actúa como gateway y punto de control de la red. Implementa:
 - **Enrutamiento y NAT**: Configura `iptables` para realizar Source NAT (MASQUERADE) y forwarding IPv4 entre la interfaz WAN (`eth0`) y LAN (`eth1`).
-- **Sistema de autenticación por IP**: Utiliza `ipset` con conjuntos hash:ip temporales (`authed`) para mantener un registro dinámico de direcciones IP autorizadas con timeout configurable.
+- **Sistema de autenticación por IP+MAC**: Utiliza `ipset` con conjuntos `hash:ip,mac` temporales (`authed`) para mantener un registro dinámico de sesiones autorizadas (IP y MAC, no solo IP) con timeout configurable.
  - **Servidor DNS local**: `dnsmasq` resuelve peticiones DNS desde la LAN, con resolución personalizada del nombre del certificado TLS (`portal.hastalap` por defecto) hacia la IP del router.
 - **Backend de autenticación**: Servidor HTTP implementado en Python (librería estándar) que gestiona:
   - Páginas de login y logout
@@ -807,12 +812,20 @@ docker port c1
 
 ### Native (Linux)
 
-- **`native/install-router.sh`**: Script de instalación completo que:
-  - Instala dependencias (iptables, dnsmasq, nginx, python3, etc.)
-  - Configura el sistema (IP forwarding, NAT, firewall)
-  - Crea el servicio systemd `portal-cautivo`
-  - Inicia automáticamente todos los servicios
-  - **Uso**: `sudo bash native/install-router.sh`
+Instalación en 4 pasos independientes (instalar → configurar interfaces →
+iniciar → verificar), para que aplicar cambios de red no requiera reinstalar
+nada. Detalle completo en `native/README.md`.
+
+- **`native/install.sh`**: instala dependencias (iptables, ipset, dnsmasq,
+  nginx, python3), copia la aplicación a `/opt/captive-portal` y registra el
+  servicio systemd `captive-portal` (con reinicio automático si falla).
+  **Uso**: `sudo bash native/install.sh`
+- **`native/configure-interfaces.sh`**: asistente interactivo para elegir
+  WAN/LAN y la IP del portal.
+- **`native/start-portal.sh`**: aplica `iptables`/`ipset` (idempotente) e
+  inicia dnsmasq, nginx y el backend.
+- **`native/stop-portal.sh`** / **`native/status-portal.sh`**: detener y
+  limpiar, o consultar el estado (servicios, sesiones autenticadas, logs).
 
 ## Documentación Adicional
 
