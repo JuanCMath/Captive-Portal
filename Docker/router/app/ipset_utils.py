@@ -90,10 +90,13 @@ def get_remaining_timeout(ip: str, mac: str) -> int:
         if res.returncode != 0:
             return 0
         # Formato de línea: "192.168.100.2,aa:bb:cc:dd:ee:ff timeout 3542"
-        target = f"{ip},{mac}"
+        # ipset normaliza la MAC a mayúsculas al listarla, sin importar en
+        # qué formato se insertó (comprobado con Docker/native real);
+        # comparamos en minúsculas para no depender de esa normalización.
+        target = f"{ip},{mac}".lower()
         for line in res.stdout.splitlines():
             parts = line.split()
-            if not parts or parts[0] != target:
+            if not parts or parts[0].lower() != target:
                 continue
             if "timeout" in parts:
                 try:
