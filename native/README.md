@@ -46,8 +46,7 @@ sudo ./status-portal.sh
 |-----|-------|
 | Aplicación | `/opt/captive-portal/app/` |
 | Configuración | `/etc/captive-portal/portal.conf` |
-| Certificado TLS (self-signed / propio) | `TLS_CERT_PATH`/`TLS_KEY_PATH` en `portal.conf` (default `/etc/captive-portal/ssl/portal.{crt,key}`) |
-| Certificado TLS (Let's Encrypt) | `/etc/letsencrypt/live/<CERT_CN>/{fullchain,privkey}.pem` (gestionado por `certbot`) |
+| Certificado TLS | Ver `TLS.md` — depende de `TLS_MODE` |
 | Usuarios | `/opt/captive-portal/app/users.json` |
 | Logs del backend / auditoría | `/var/log/captive-portal/` |
 | Logs del backend (systemd) | `sudo journalctl -u captive-portal -f` |
@@ -130,69 +129,10 @@ nslookup portal.hastalap 192.168.100.1   # ajusta a tu LAN_IP
 
 ### El certificado TLS no es confiable
 
-Depende de `TLS_MODE` en `portal.conf`:
-
-- **`self-signed`** (default): es **normal**, el navegador mostrará una
-  advertencia que el usuario debe aceptar. No hay CA propia detrás.
-- **Traer tu propio certificado**: coloca tu `.crt`/`.key` ya emitidos
-  (por tu CA interna, o por cualquier otro medio) en las rutas
-  `TLS_CERT_PATH`/`TLS_KEY_PATH` de `portal.conf` **antes** de correr
-  `start-portal.sh` — al encontrar los archivos ya presentes, el script no
-  genera uno autofirmado y los usa tal cual.
-- **`TLS_MODE=letsencrypt`**: `start-portal.sh` emite y renueva
-  automáticamente un certificado real con `certbot` (ver sección siguiente).
-
-## TLS con Let's Encrypt (certificado real, renovación automática)
-
-Requiere que `CERT_CN` sea un **dominio público de verdad** (no
-`portal.hastalap`) cuyo registro DNS apunte a una IP donde el puerto 80 de
-este equipo sea alcanzable desde Internet — directo si `UPLINK_IF` tiene IP
-pública, o vía port-forwarding si está detrás de otro router. Esto no
-choca con que `dnsmasq` resuelva ese mismo nombre a la IP de la LAN para
-los clientes internos (DNS de horizonte dividido, patrón estándar): Let's
-Encrypt consulta el DNS público real, no el de la LAN.
-
-```bash
-# En portal.conf:
-TLS_MODE=letsencrypt
-CERT_CN=portal.tuempresa.com
-LETSENCRYPT_EMAIL=admin@tuempresa.com
-```
-
-```bash
-sudo ./start-portal.sh
-```
-
-Qué hace `start-portal.sh` en este modo:
-
-1. Arranca nginx con un certificado autofirmado de respaldo (nginx
-   necesita *algún* certificado para levantar su bloque HTTPS antes de que
-   exista uno real).
-2. Abre una excepción puntual en el firewall: **solo el puerto 80** en la
-   interfaz WAN (`UPLINK_IF`) queda accesible desde Internet — necesario
-   para que Let's Encrypt valide el dominio (reto ACME, HTTP-01). El resto
-   (443, el backend, DNS, DHCP) sigue bloqueado en WAN igual que siempre.
-3. Pide el certificado a Let's Encrypt vía `certbot`. Si lo consigue,
-   recarga nginx con el certificado real; si falla (DNS aún no propagado,
-   puerto 80 no alcanzable, etc.), registra el error en
-   `/var/log/captive-portal/certbot-issue.log` y **sigue operando con el
-   autofirmado** — no aborta el arranque del portal.
-4. Activa `certbot.timer` (del paquete Debian), que reintenta la
-   renovación automáticamente dos veces al día y recarga nginx tras cada
-   renovación exitosa.
-
-Diagnóstico:
-
-```bash
-sudo ./status-portal.sh                         # modo TLS y expiración del cert
-sudo cat /var/log/captive-portal/certbot-issue.log   # si la emisión falló
-sudo certbot certificates                        # certificados que gestiona certbot
-sudo certbot renew --dry-run                      # probar la renovación sin gastar cuota
-```
-
-> `stop-portal.sh` cierra de nuevo el puerto 80 en WAN al detener el
-> portal; `certbot.timer` sigue activo a nivel de sistema (inofensivo con
-> el portal detenido, vuelve a renovar bien en el siguiente arranque).
+Con `TLS_MODE=self-signed` (default) es **normal**: el navegador mostrará
+una advertencia que el usuario debe aceptar. Para certificado propio o
+Let's Encrypt (sin advertencia), ver **`TLS.md`** — guía completa de los
+tres modos, cómo cambiar entre ellos, y diagnóstico.
 
 ## Diferencias con el despliegue Docker
 
@@ -233,6 +173,7 @@ sudo apt-get remove --purge iptables ipset dnsmasq nginx openssl certbot
 
 ## Más información
 
+- **`TLS.md`** - Certificado propio y Let's Encrypt: guía completa
 - `ANALISIS_PROYECTO.md` - Análisis técnico completo
 - `CAMBIOS_SEGURIDAD.md` - Auditoría de seguridad y pendientes
 - `Docker/DESPLIEGUE.md` - Documentación de despliegue Docker

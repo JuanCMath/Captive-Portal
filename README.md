@@ -830,6 +830,8 @@ nada. Detalle completo en `native/README.md`.
 
 ## Documentación Adicional
 
+- **`native/TLS.md`**: Certificado propio y Let's Encrypt en el despliegue
+  nativo — los tres modos de TLS, cómo cambiar entre ellos y diagnóstico.
 - **`notes/SETUP_VM_VIRTUALBOX.md`**: Guía completa paso a paso para configurar 2 máquinas virtuales Ubuntu con VirtualBox (router + cliente) incluyendo:
   - Creación de red Host-Only
   - Instalación de Ubuntu Desktop en ambas VMs
