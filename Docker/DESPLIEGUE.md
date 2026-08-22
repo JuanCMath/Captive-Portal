@@ -277,13 +277,15 @@ LAN_NET=miportal ./2-deploy.sh
 
 ### Usuarios Predefinidos
 
-Por defecto, el portal crea usuario:
-- Usuario: `admin`
-- Contraseña: `admin`
+No hay credenciales por defecto predecibles: en el primer arranque sin
+`users.json`, el portal genera una contraseña aleatoria para `admin` y la
+muestra **una sola vez** en los logs del contenedor
+(`docker logs router`) y en `/app/app/admin_password_initial.txt` dentro
+del contenedor.
 
 Para crear más usuarios, accede a http://localhost:6091/vnc.html (router) y usa el panel de administración en:
 - URL: https://portal.hastalap/admin/users
-- Autenticación HTTP Basic con admin/admin
+- Autenticación HTTP Basic con la cuenta `admin` y esa contraseña
 
 ---
 
@@ -369,22 +371,6 @@ docker rmi portal-router:latest portal-client:latest
 ```
 
 ---
-
-## Referencia de Scripts Existentes
-
-Los scripts 1 y 2 utilizan internamente los scripts legados:
-
-| Script Legado | Ubicación | Función |
-|---------------|-----------|---------|
-| `create_lan.sh` | `Docker/config/` | Crear red Docker bridge |
-| `router_online.sh` | `Docker/config/` | Iniciar contenedor router |
-| `client_online.sh` | `Docker/config/` | Iniciar clientes (3 predefinidos) |
-
-Nuestros scripts nuevos **mejoran** estos proporcionando:
-- ✅ Nombres de imágenes legibles (`portal-router`, `portal-client`)
-- ✅ Flujo unificado de preparación y despliegue
-- ✅ Mejor manejo de errores y validaciones
-- ✅ Información clara de acceso y topología
 - ✅ Colores y formato visual mejorado
 
 ---

@@ -1,6 +1,14 @@
 # Análisis Técnico del Portal Cautivo
 ## Proyecto de Redes de Computadoras - Universidad de La Habana, Curso 2025
 
+> **Nota histórica**: este documento describe el proyecto en una etapa
+> temprana de su desarrollo. Varios detalles técnicos ya no son exactos —
+> por ejemplo, las contraseñas ya no se guardan en texto plano (PBKDF2
+> desde diciembre de 2025) y la vinculación de sesión usa `hash:ip,mac`,
+> no solo la IP. Para el estado y la arquitectura actuales, ver
+> [`README.md`](../README.md) y [`CAMBIOS_SEGURIDAD.md`](CAMBIOS_SEGURIDAD.md).
+> Se conserva como registro del análisis original del proyecto.
+
 ---
 
 ## Tabla de Contenidos

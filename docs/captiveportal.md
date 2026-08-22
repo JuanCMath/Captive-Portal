@@ -1,5 +1,10 @@
 # Captive-Portal. 2do Proyecto de la Asignatura Redes de Computadoras, Curso 2025.
 
+> **Nota histórica**: este es el enunciado original de la asignatura, el
+> punto de partida del proyecto. El portal ha evolucionado bastante más
+> allá de estos requisitos mínimos — ver [`README.md`](../README.md) para
+> el estado actual.
+
 ## Descripción:
 
 Tal como describe su nombre, el objetivo del proyecto es la implementación de un portal cautivo. Un portal cautivo es una solución informática que permite el control de acceso a una red corporativa. Al incorporarse un dispositivo nuevo al a red, el ordenador que funge como portal bloquea cualquier tipo de comunicación fuera de la red local hasta que el usuario haya iniciado sesión o cumplido alguna prerrogativa de acceso a la red. Tras cumplir los requisitos de acceso, el usuario obtiene acceso fuera de su red local. 

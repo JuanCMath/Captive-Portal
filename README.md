@@ -37,7 +37,7 @@ Para pruebas en VMs con aislamiento completo:
    sudo ./start-portal.sh            # firewall + dnsmasq + nginx + backend
    ```
 
-Consulta `notes/SETUP_VM_VIRTUALBOX.md` para instrucciones detalladas paso a paso.
+Consulta `docs/SETUP_VM_VIRTUALBOX.md` para instrucciones detalladas paso a paso.
 
 ### Opción 3: Despliegue en Linux Nativo (Servidor)
 
@@ -90,7 +90,7 @@ Contenedores que simulan dispositivos de usuario final conectados a la red del p
 - Capacidades de red (`NET_ADMIN`) para permitir configuración dinámica de rutas
 
 #### 3. **Red Docker**
-Red bridge personalizada (`lan0`) que simula la LAN interna:
+Red bridge personalizada (`portal-lan`) que simula la LAN interna:
 - Subred configurable (por defecto `10.200.0.0/24`)
 - IPs estáticas asignadas a router y clientes
 - Aislamiento de tráfico mediante namespace de red Docker
@@ -121,15 +121,16 @@ Script de inicialización del contenedor router. Orquesta la configuración comp
 
 **Mecanismo de portal cautivo con ipset:**
 ```bash
-ipset create authed hash:ip timeout ${AUTH_TIMEOUT} -exist
+ipset create authed hash:ip,mac timeout ${AUTH_TIMEOUT} -exist
 ```
-Crea estructura de datos kernel-space para almacenar IPs autorizadas con expiración automática.
+Crea estructura de datos kernel-space para almacenar sesiones autorizadas
+(IP **y** MAC, no solo IP) con expiración automática.
 
 **Reglas de redirección y filtrado:**
 1. **Redirección HTTP (tabla nat, PREROUTING):**
    ```bash
    iptables -t nat -A PREROUTING -i $LAN_IF -p tcp --dport 80 \
-     -m set ! --match-set authed src -j CP_REDIRECT
+     -m set ! --match-set authed src,src -j CP_REDIRECT
    ```
    Intercepta peticiones HTTP de IPs no autenticadas y aplica DNAT hacia nginx local.
 
@@ -210,104 +211,11 @@ ip route replace default via "${ROUTER_IP}" || true
 - `|| true`: Continúa ejecución incluso si el comando falla (tolerancia a fallos)
 - Requiere capability `NET_ADMIN` en el contenedor
 
-### `Docker/config/create_lan.sh`
-
-Script idempotente para creación de red Docker bridge:
-
-```bash
-if docker network inspect "${LAN_NET}" >/dev/null 2>&1; then
-  echo "La red ${LAN_NET} ya existe."
-else
-  docker network create --driver bridge \
-    --subnet "${SUBNET}" --gateway "${GATEWAY}" "${LAN_NET}"
-fi
-```
-- Verificación de existencia previa para evitar errores
-- Configuración de subred y gateway personalizados
-- Driver `bridge`: Red virtual con switch software integrado
-
-### `Docker/config/router_online.sh`
-
-Script de despliegue del contenedor router con configuración completa de red:
-
-**Capacidades de red requeridas:**
-```bash
---cap-add=NET_ADMIN --cap-add=NET_RAW --sysctl net.ipv4.ip_forward=1
-```
-- `NET_ADMIN`: Permite configuración de interfaces, rutas, iptables, ipset
-- `NET_RAW`: Necesario para operaciones de bajo nivel con sockets raw
-- `net.ipv4.ip_forward=1`: Habilita forwarding IP a nivel de contenedor
-
-**Configuración de interfaces:**
-- `UPLINK_IF=eth0`: Primera interfaz (red Docker por defecto) actúa como WAN
-- `LAN_IF=eth1`: Segunda interfaz añadida posteriormente con `docker network connect`
-
-**Conexión a red LAN:**
-```bash
-docker network connect --ip "${LAN_IP}" "${LAN_NET}" router
-```
-Ejecutado después de `docker run` para añadir interfaz adicional al contenedor en ejecución con IP estática específica.
-
-### `Docker/config/client_online.sh`
-
-Script de aprovisionamiento masivo de clientes para pruebas:
-
-**Función de creación de cliente:**
-```bash
-run_client () {
-  local NAME="$1"; local IP="$2"; local PORT="$3"; local PW="$4"
-  docker rm -f "${NAME}" 2>/dev/null || true
-  docker run -d --name "${NAME}" \
-    --network "${LAN_NET}" --ip "${IP}" \
-    --cap-add=NET_ADMIN \
-    --dns "${ROUTER_IP}" \
-    -e ROUTER_IP="${ROUTER_IP}" \
-    -e VNC_PW="${PW}" \
-    -e BROWSER_URL="${BROWSER_URL:-https://example.com}" \
-    -p "${PORT}:6081" \
-    "${IMAGE}" bash -lc '/entrypoint.sh /usr/local/bin/start-ui.sh'
-}
-```
-
-**Parámetros clave:**
-- `--network "${LAN_NET}" --ip "${IP}"`: Asignación de IP estática en red LAN
-- `--dns "${ROUTER_IP}"`: Fuerza uso del DNS del router (crítico para resolución de `portal.hastalap`)
-- `-p "${PORT}:6081"`: Mapeo de puerto noVNC único por cliente para acceso simultáneo desde host
-- `bash -lc`: Shell login que ejecuta entrypoint y start-ui en secuencia
-
-**Instanciación de clientes:**
-Crea tres clientes (c1, c2, c3) con IPs consecutivas (`10.200.0.11`, `.12`, `.13`) y puertos noVNC mapeados a 6081, 6082, 6083 del host.
-
 ## Flujo de Operación
 
-### Fase de Inicialización
-
-1. **Creación de infraestructura de red:**
-   ```bash
-   cd Docker/config
-   ./create_lan.sh
-   ```
-   Establece red bridge `lan0` con subred `10.200.0.0/24`.
-
-2. **Construcción de imágenes:**
-   ```bash
-   docker build -t router:latest ./Docker/router
-   docker build -t client:latest ./Docker/client
-   ```
-
-3. **Despliegue de router:**
-   ```bash
-   ./router_online.sh router:latest
-   ```
-   - Inicia contenedor con capacidades de red elevadas
-   - Conecta interfaz adicional a red LAN con IP `10.200.0.254`
-   - El entrypoint configura iptables, ipset, dnsmasq, nginx y backend Python
-
-4. **Despliegue de clientes:**
-   ```bash
-   ./client_online.sh
-   ```
-   Levanta clientes c1, c2, c3 con acceso noVNC en `http://localhost:6081`, `6082`, `6083`.
+> Para levantar el entorno Docker, ver "Inicio Rápido" arriba
+> (`1-prepare.sh` + `2-deploy.sh`). Lo que sigue describe el ciclo de
+> autenticación una vez que el router y los clientes ya están corriendo.
 
 ### Ciclo de Autenticación
 
@@ -342,19 +250,21 @@ Crea tres clientes (c1, c2, c3) con IPs consecutivas (`10.200.0.11`, `.12`, `.13
    - Backend extrae IP del cliente desde header `X-Real-IP` (inyectado por nginx)
 
 2. **Validación:**
-   ```python
-   users_dict = load_users()
-   if username in users_dict and users_dict[username] == password:
-       # Autenticación exitosa
-   ```
-   - Comparación con credenciales en `users.json`
-   - Hash/cifrado de contraseñas opcional (actualmente texto plano para simplicidad académica)
+   - `check_credentials()` compara contra el hash almacenado
+     (PBKDF2-HMAC-SHA256, 260 000 iteraciones, salt por usuario) con
+     `hmac.compare_digest` (tiempo constante) — ver
+     [`CAMBIOS_SEGURIDAD.md`](docs/CAMBIOS_SEGURIDAD.md).
+   - Antes de esto, se exige rate limiting (5 intentos/min) y un token
+     CSRF válido.
 
 3. **Autorización en firewall:**
    ```python
-   subprocess.run(["ipset", "add", "authed", client_ip, "timeout", str(AUTH_TIMEOUT)])
+   subprocess.run(["ipset", "add", "authed", f"{client_ip},{client_mac}", "timeout", str(AUTH_TIMEOUT), "-exist"])
    ```
-   - Añade IP del cliente al conjunto `ipset authed` con timeout
+   - Añade el par **IP,MAC** del cliente al conjunto `ipset authed` con
+     timeout — no solo la IP, para que otro dispositivo que reciba esa
+     misma IP más tarde (p.ej. tras expirar un lease DHCP) no herede la
+     sesión.
    - Operación atómica a nivel de kernel, inmediatamente efectiva
 
 4. **Activación de acceso:**
@@ -366,8 +276,9 @@ Crea tres clientes (c1, c2, c3) con IPs consecutivas (`10.200.0.11`, `.12`, `.13
 
 - Todo el tráfico hacia WAN atraviesa regla iptables:
   ```bash
-  iptables -I FORWARD 1 -i $LAN_IF -o $UPLINK_IF -m set --match-set authed src -j ACCEPT
+  iptables -I FORWARD 1 -i $LAN_IF -o $UPLINK_IF -m set --match-set authed src,src -j ACCEPT
   ```
+  (`src,src`: coincide IP **y** MAC del paquete contra el conjunto `hash:ip,mac`)
 - Peticiones HTTP ya no son redirigidas (regla PREROUTING no coincide)
 - Navegación normal sin interceptación
 
@@ -388,14 +299,13 @@ Acceso protegido con HTTP Basic Authentication:
    
    - **Revocación manual de acceso:**
      ```python
-     subprocess.run(["ipset", "del", "authed", ip_address])
+     subprocess.run(["ipset", "del", "authed", f"{ip},{mac}"])
      ```
-     Elimina IP específica inmediatamente del conjunto autorizado
+     Elimina esa sesión (IP+MAC) inmediatamente del conjunto autorizado
 
-   - **Gestión de usuarios (futuro):**
-     - Agregar/eliminar usuarios
-     - Modificar credenciales
-     - Configurar permisos por usuario
+   - **Gestión de usuarios**: crear y eliminar cuentas desde el propio
+     panel (`/admin/users`), con token CSRF y longitud mínima de
+     contraseña. La cuenta `admin` no se puede eliminar desde ahí.
 
 ## Requisitos del Sistema
 
@@ -453,15 +363,18 @@ El contenedor router requiere privilegios elevados:
 
 #### `Docker/router/app/users.json`
 
-Almacén de credenciales de usuarios:
+Almacén de credenciales de usuarios (contraseñas hasheadas con PBKDF2, no
+en texto plano; ver [`CAMBIOS_SEGURIDAD.md`](docs/CAMBIOS_SEGURIDAD.md)).
+No se trackea en git — la app genera un `admin` con contraseña aleatoria en
+el primer arranque si el archivo no existe:
 ```json
-{
-  "admin": "admin123",
-  "user1": "password1",
-  "user2": "password2"
-}
+[
+  {
+    "u": "admin",
+    "p": "pbkdf2_sha256$260000$<salt-hex>$<hash-hex>"
+  }
+]
 ```
-**Nota de seguridad**: En producción, implementar hash de contraseñas (bcrypt, argon2) y almacenamiento seguro.
 
 #### `Docker/router/app/config.py`
 
@@ -474,39 +387,8 @@ USERS_FILE = Path(__file__).parent / "users.json"
 
 ## Despliegue
 
-### Secuencia Completa
-
-```bash
-# 1. Posicionarse en el directorio del proyecto
-cd /ruta/al/Captive-Portal
-
-# 2. Crear red LAN
-cd Docker/config
-bash create_lan.sh
-
-# 3. Construir imágenes
-cd ..
-docker build -t router:latest ./router
-docker build -t client:latest ./client
-
-# 4. Levantar router
-cd config
-bash router_online.sh router:latest
-
-# 5. Verificar inicialización del router
-docker logs -f router
-# Esperar mensaje: "Router listo. Portal en https://portal.hastalap"
-# Ctrl+C para salir del seguimiento de logs
-
-# 6. Levantar clientes
-bash client_online.sh
-
-# 7. Acceder a interfaces noVNC
-# - Router: http://localhost:6091
-# - Cliente 1: http://localhost:6081
-# - Cliente 2: http://localhost:6082
-# - Cliente 3: http://localhost:6083
-```
+Ver "Inicio Rápido" al comienzo de este documento: `1-prepare.sh` +
+`2-deploy.sh` para Docker, o `sudo bash install.sh` para nativo.
 
 ### Verificación del Sistema
 
@@ -523,8 +405,8 @@ docker exec router ipset list authed
 
 #### Verificar conectividad desde cliente:
 ```bash
-# Acceder a shell de cliente
-docker exec -it c1 bash
+# Acceder a shell de cliente (client-1 o client-2, ver 2-deploy.sh)
+docker exec -it client-1 bash
 
 # Probar resolución DNS
 nslookup portal.hastalap
@@ -546,8 +428,7 @@ ip route show default
 El proyecto está diseñado para demostraciones y aprendizaje, con configuraciones permisivas aceptables en redes aisladas:
 
 - **VNC sin contraseña**: Apropiado en red de laboratorio sin acceso externo
-- **Certificado autofirmado**: Suficiente para demostrar funcionamiento de TLS
-- **Credenciales en texto plano**: Simplifica comprensión del flujo de autenticación
+- **Certificado autofirmado** (modo default): Suficiente para demostrar funcionamiento de TLS
 - **`--no-sandbox` en Chromium**: Necesario en contenedores, bajo riesgo en entorno controlado
 
 ### Para Despliegue en Producción
@@ -571,7 +452,7 @@ Modificaciones críticas requeridas:
 3. **Hash de contraseñas:** ✅ implementado — `PBKDF2-HMAC-SHA256`
    (260 000 iteraciones, salt aleatorio por usuario) en `app/users.py`,
    con comparación en tiempo constante y migración automática de
-   contraseñas en texto plano heredadas. Ver `CAMBIOS_SEGURIDAD.md`.
+   contraseñas en texto plano heredadas. Ver `docs/CAMBIOS_SEGURIDAD.md`.
 
 4. **Restricción de capacidades Docker:**
    - Evitar `--privileged`
@@ -657,7 +538,7 @@ docker exec router ipset list authed
 docker exec router iptables -L FORWARD -n -v --line-numbers
 
 # En cliente, probar conectividad
-docker exec c1 ping -c 3 8.8.8.8
+docker exec client-1 ping -c 3 8.8.8.8
 ```
 
 **Causas comunes:**
@@ -695,7 +576,7 @@ docker exec router tcpdump -i eth1 -n port 80
 
 2. **DNS no apunta al router:**
    - Cliente resuelve nombres con DNS externo, bypass del portal
-   - Verificar: `docker exec c1 cat /etc/resolv.conf`
+   - Verificar: `docker exec client-1 cat /etc/resolv.conf`
    - Debe contener `nameserver 10.200.0.254`
 
 3. **Nginx no escucha en puerto 80:**
@@ -736,7 +617,7 @@ docker exec router tcpdump -i eth1 -n port 80
 docker ps | grep c1
 
 # Verificar logs de websockify
-docker exec c1 cat /tmp/novnc.log
+docker exec client-1 cat /tmp/novnc.log
 
 # Verificar puerto mapeado
 docker port c1
@@ -749,14 +630,14 @@ docker port c1
 
 2. **Servicios noVNC no iniciados:**
    ```bash
-   docker exec c1 pgrep websockify
-   docker exec c1 pgrep x11vnc
+   docker exec client-1 pgrep websockify
+   docker exec client-1 pgrep x11vnc
    ```
    Si no hay PIDs, `start-ui.sh` no se ejecutó correctamente.
 
 3. **Xvfb falló al iniciar:**
    ```bash
-   docker exec c1 cat /tmp/fluxbox.log
+   docker exec client-1 cat /tmp/fluxbox.log
    ```
    Puede indicar falta de permisos o dependencias.
 
@@ -843,12 +724,18 @@ nada. Detalle completo en `native/README.md`.
 
 - **`native/TLS.md`**: Certificado propio y Let's Encrypt en el despliegue
   nativo — los tres modos de TLS, cómo cambiar entre ellos y diagnóstico.
-- **`notes/SETUP_VM_VIRTUALBOX.md`**: Guía completa paso a paso para configurar 2 máquinas virtuales Ubuntu con VirtualBox (router + cliente) incluyendo:
+- **`docs/SETUP_VM_VIRTUALBOX.md`**: Guía completa paso a paso para configurar 2 máquinas virtuales Ubuntu con VirtualBox (router + cliente) incluyendo:
   - Creación de red Host-Only
   - Instalación de Ubuntu Desktop en ambas VMs
   - Configuración de interfaces de red
   - Instalación del portal mediante script
   - Pruebas y troubleshooting
+- **`docs/CAMBIOS_SEGURIDAD.md`**: Auditoría de seguridad de diciembre de
+  2025 — qué se corrigió y por qué.
+- **`docs/ANALISIS_PROYECTO.md`**: Análisis técnico profundo del proyecto
+  en una etapa temprana (nota histórica al inicio del documento).
+- **`docs/captiveportal.md`**: Enunciado original de la asignatura que dio
+  origen al proyecto.
 
 ## Licencia
 

@@ -206,4 +206,14 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-./notes
+
+# --- Captive Portal (especifico del proyecto) ---
+# Notas personales locales, nunca se comparten en el repo.
+notes/
+
+# Base de datos de usuarios y avisos de contrasena inicial: son datos de
+# una instalacion concreta, no codigo fuente. La app los genera solos en
+# el primer arranque (ver app/users.py).
+Docker/router/app/users.json
+Docker/router/app/admin_password_initial.txt
+Docker/router/logs/

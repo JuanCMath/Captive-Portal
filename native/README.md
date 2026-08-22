@@ -202,7 +202,7 @@ sudo apt-get remove --purge iptables ipset dnsmasq nginx openssl certbot
 ## Más información
 
 - **`TLS.md`** - Certificado propio y Let's Encrypt: guía completa
-- `ANALISIS_PROYECTO.md` - Análisis técnico completo
-- `CAMBIOS_SEGURIDAD.md` - Auditoría de seguridad y pendientes
-- `Docker/DESPLIEGUE.md` - Documentación de despliegue Docker
+- `../docs/ANALISIS_PROYECTO.md` - Análisis técnico completo
+- `../docs/CAMBIOS_SEGURIDAD.md` - Auditoría de seguridad y pendientes
+- `../Docker/DESPLIEGUE.md` - Documentación de despliegue Docker
 - Código fuente: `Docker/router/app/` (compartido entre ambos entornos)
