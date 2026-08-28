@@ -1,60 +1,63 @@
 # Captive Portal
 
+🇬🇧 English (you are here) · 🇪🇸 [Leer en español](README.es.md)
+
 [![Tests](https://github.com/JuanCMath/Captive-Portal/actions/workflows/tests.yml/badge.svg)](https://github.com/JuanCMath/Captive-Portal/actions/workflows/tests.yml)
 
-## Descripción General
+## Overview
 
-Implementación de un portal cautivo (captive portal) que simula una red controlada con autenticación obligatoria. El sistema intercepta el tráfico HTTP de clientes no autenticados y los redirige a una página de inicio de sesión mediante reglas de iptables/ipset, permitiendo o bloqueando el acceso a Internet según el estado de autenticación del usuario.
+Implementation of a captive portal that simulates a controlled network with mandatory authentication. The system intercepts HTTP traffic from unauthenticated clients and redirects them to a login page via iptables/ipset rules, allowing or blocking internet access based on the user's authentication state.
 
-Este proyecto constituye una solución completa de control de acceso a red que integra servicios de enrutamiento, DNS, proxy inverso (nginx), backend de autenticación (Python HTTP server), y una interfaz gráfica accesible vía noVNC para facilitar pruebas y demostraciones en entornos académicos y de investigación.
+This project is a complete network access-control solution that integrates routing, DNS, a reverse proxy (nginx), an authentication backend (Python HTTP server), and a graphical interface accessible via noVNC to make testing and demonstrations easier in academic and research settings.
 
-**El proyecto soporta dos modos de despliegue:**
+**The project supports two deployment modes:**
 
-1. **Docker (simulación)**: Contenedores aislados ideal para desarrollo y pruebas
-2. **Linux Nativo (producción)**: Despliegue directo en servidor Linux para redes reales
+1. **Docker (simulation)**: isolated containers, ideal for development and testing
+2. **Native Linux (production)**: direct deployment on a Linux server for real networks
 
-## Inicio Rápido
+## Quick Start
 
-### Opción 1: Despliegue con Docker (Recomendado para desarrollo y pruebas)
+### Option 1: Docker deployment (recommended for development and testing)
 
 ```bash
 cd Docker
-./1-prepare.sh    # Construir imágenes
-./2-deploy.sh     # Iniciar contenedores
-# Acceder a: http://localhost:6081/vnc.html (Cliente 1)
+./1-prepare.sh    # Build images
+./2-deploy.sh     # Start containers
+# Access: http://localhost:6081/vnc.html (Client 1)
 ```
 
-### Opción 2: Despliegue en Máquina Virtual Linux (Con VirtualBox)
+### Option 2: Deployment on a Linux VM (with VirtualBox)
 
-Para pruebas en VMs con aislamiento completo:
+For testing in fully isolated VMs:
 
-1. **Preparar VirtualBox** (crear red Host-Only)
-2. **Crear 2 VMs**: Router (Ubuntu Desktop) + Cliente (Ubuntu Desktop)
-3. **Configurar red** en ambas VMs
-4. **Instalar en VM Router**:
+1. **Set up VirtualBox** (create a Host-Only network)
+2. **Create 2 VMs**: Router (Ubuntu Desktop) + Client (Ubuntu Desktop)
+3. **Configure networking** on both VMs
+4. **Install on the Router VM**:
    ```bash
    cd ~/Captive-Portal/native
-   sudo ./install.sh                 # dependencias, app, servicio systemd
-   sudo ./configure-interfaces.sh    # elegir WAN/LAN e IP del portal
+   sudo ./install.sh                 # dependencies, app, systemd service
+   sudo ./configure-interfaces.sh    # choose WAN/LAN and the portal's IP
    sudo ./start-portal.sh            # firewall + dnsmasq + nginx + backend
    ```
 
-Consulta `docs/SETUP_VM_VIRTUALBOX.md` para instrucciones detalladas paso a paso.
+See `docs/SETUP_VM_VIRTUALBOX.md` for detailed step-by-step instructions.
 
-### Opción 3: Despliegue en Linux Nativo (Servidor)
+### Option 3: Native Linux deployment (server)
 
-Para entornos de producción o máquinas Linux reales, un solo comando desde
-la raíz del repositorio:
+For production environments or real Linux machines, a single command
+from the repository root:
 
 ```bash
 sudo bash install.sh
 ```
 
-Encadena instalación de dependencias, configuración de red (asistente
-interactivo, o no interactivo si exportas `WAN_IF`/`LAN_IF`/`LAN_IP` antes),
-firewall y arranque de servicios. Para control fino (reinstalar un paso
-puntual, cambiar `TLS_MODE`, actualizar sin tocar red) usa los scripts de
-`native/` por separado:
+Chains dependency installation, network configuration (interactive
+wizard, or non-interactive if you export `WAN_IF`/`LAN_IF`/`LAN_IP`
+beforehand), firewall setup, and service startup. For fine-grained
+control (reinstalling a single step, changing `TLS_MODE`, updating
+without touching the network) use the scripts under `native/`
+separately:
 
 ```bash
 cd native
@@ -63,316 +66,316 @@ sudo ./configure-interfaces.sh
 sudo ./start-portal.sh
 ```
 
-Detalles de cada script, rutas y solución de problemas en `native/README.md`.
+Details on each script, paths, and troubleshooting are in
+`native/README.md`.
 
-## Arquitectura del Sistema
+## System Architecture
 
-> Diagramas del flujo de autenticación y de la defensa contra suplantación
-> de MAC (el hallazgo de seguridad más importante del proyecto) en
+> Diagrams of the authentication flow and of the defense against MAC
+> spoofing (the project's most important security finding) are in
 > [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md).
 
-### Componentes Principales
+### Main Components
 
-#### 1. **Router (Portal Cautivo)**
-Contenedor que actúa como gateway y punto de control de la red. Implementa:
-- **Enrutamiento y NAT**: Configura `iptables` para realizar Source NAT (MASQUERADE) y forwarding IPv4 entre la interfaz WAN (`eth0`) y LAN (`eth1`).
-- **Sistema de autenticación por IP+MAC**: Utiliza `ipset` con conjuntos `hash:ip,mac` temporales (`authed`) para mantener un registro dinámico de sesiones autorizadas (IP y MAC, no solo IP) con timeout configurable.
- - **Servidor DNS local**: `dnsmasq` resuelve peticiones DNS desde la LAN, con resolución personalizada del nombre del certificado TLS (`portal.hastalap` por defecto) hacia la IP del router.
-- **Backend de autenticación**: Servidor HTTP implementado en Python (librería estándar) que gestiona:
-  - Páginas de login y logout
-  - Validación de credenciales contra `users.json`
-  - Manipulación del conjunto `ipset` mediante comandos del sistema
-  - Panel de administración con autenticación HTTP Basic
-- **Proxy inverso TLS**: Nginx configurado con certificado autofirmado que:
-  - Redirige tráfico HTTP (puerto 80) detectado por sistemas operativos cliente (Android `generate_204`, iOS/macOS `hotspot-detect.html`, Windows `connecttest.txt`)
-  - Termina conexiones TLS (puerto 443) y enruta peticiones HTTPS al backend Python
-- **Interfaz gráfica opcional**: Servidor noVNC con navegador Chromium para visualización remota del portal
+#### 1. **Router (Captive Portal)**
+A container that acts as the network's gateway and control point. It implements:
+- **Routing and NAT**: configures `iptables` to perform Source NAT (MASQUERADE) and IPv4 forwarding between the WAN interface (`eth0`) and LAN interface (`eth1`).
+- **IP+MAC authentication system**: uses `ipset` with temporary `hash:ip,mac` sets (`authed`) to keep a dynamic record of authorized sessions (IP and MAC, not just IP) with a configurable timeout.
+- **Local DNS server**: `dnsmasq` resolves DNS requests from the LAN, with custom resolution of the TLS certificate's name (`portal.hastalap` by default) to the router's IP.
+- **Authentication backend**: an HTTP server implemented in Python (standard library) that handles:
+  - Login and logout pages
+  - Credential validation against `users.json`
+  - Manipulating the `ipset` set via system commands
+  - An admin panel with HTTP Basic authentication
+- **TLS reverse proxy**: nginx configured with a self-signed certificate that:
+  - Redirects HTTP traffic (port 80) detected by client operating systems (Android `generate_204`, iOS/macOS `hotspot-detect.html`, Windows `connecttest.txt`)
+  - Terminates TLS connections (port 443) and routes HTTPS requests to the Python backend
+- **Optional graphical interface**: a noVNC server with a Chromium browser for remote portal viewing
 
-#### 2. **Cliente**
-Contenedores que simulan dispositivos de usuario final conectados a la red del portal:
-- Configuración automática de ruta por defecto hacia el router
-- Resolución DNS apuntando al servidor DNS del router
-- Interfaz gráfica noVNC con navegador para interactuar con el portal
-- Capacidades de red (`NET_ADMIN`) para permitir configuración dinámica de rutas
+#### 2. **Client**
+Containers that simulate end-user devices connected to the portal's network:
+- Automatic default-route configuration pointing to the router
+- DNS resolution pointing at the router's DNS server
+- A noVNC graphical interface with a browser to interact with the portal
+- Network capabilities (`NET_ADMIN`) to allow dynamic route configuration
 
-#### 3. **Red Docker**
-Red bridge personalizada (`portal-lan`) que simula la LAN interna:
-- Subred configurable (por defecto `10.200.0.0/24`)
-- IPs estáticas asignadas a router y clientes
-- Aislamiento de tráfico mediante namespace de red Docker
+#### 3. **Docker Network**
+A custom bridge network (`portal-lan`) that simulates the internal LAN:
+- Configurable subnet (`10.200.0.0/24` by default)
+- Static IPs assigned to the router and clients
+- Traffic isolation via a Docker network namespace
 
-## Análisis Técnico de Scripts
+## Script-by-script technical breakdown
 
 ### `Docker/router/entrypoint.sh`
 
-Script de inicialización del contenedor router. Orquesta la configuración completa del portal cautivo en secuencia:
+The router container's initialization script. Orchestrates the full captive-portal setup in sequence:
 
-**Configuración del sistema base:**
-- Habilita forwarding IPv4 mediante `sysctl -w net.ipv4.ip_forward=1`
-- Establece reglas NAT para traducción de direcciones: `iptables -t nat -A POSTROUTING -o $UPLINK_IF -j MASQUERADE`
-- Permite respuestas de conexiones establecidas desde WAN: `iptables -A FORWARD -i $UPLINK_IF -o $LAN_IF -m state --state RELATED,ESTABLISHED -j ACCEPT`
+**Base system configuration:**
+- Enables IPv4 forwarding via `sysctl -w net.ipv4.ip_forward=1`
+- Sets NAT rules for address translation: `iptables -t nat -A POSTROUTING -o $UPLINK_IF -j MASQUERADE`
+- Allows replies to WAN-established connections: `iptables -A FORWARD -i $UPLINK_IF -o $LAN_IF -m state --state RELATED,ESTABLISHED -j ACCEPT`
 
-**Sincronización de interfaces:**
-- Implementa espera activa (polling) hasta que Docker asigna la IP a la interfaz LAN (máximo 20 intentos con intervalo de 1 segundo)
-- Necesario porque `docker network connect` puede ejecutarse después del inicio del contenedor
+**Interface synchronization:**
+- Implements active polling until Docker assigns an IP to the LAN interface (up to 20 attempts, 1-second interval)
+- Necessary because `docker network connect` can run after the container has already started
 
-**Servicio DNS (dnsmasq):**
-- Instalación condicional si no está presente en la imagen
-- Configuración en `/etc/dnsmasq.d/lan.conf` con parámetros:
-  - `listen-address`: Vinculación exclusiva a la IP del router en LAN
-  - `bind-interfaces`: Evita escuchar en todas las interfaces
-  - `address=/${CERT_CN}/${LAN_IP}`: Resolución local del nombre del certificado TLS
-  - `domain-needed`, `bogus-priv`: Filtros de seguridad DNS
-- Apertura de puertos DNS (53/udp y 53/tcp) en cadena INPUT de iptables
+**DNS service (dnsmasq):**
+- Conditional install if not present in the image
+- Configured in `/etc/dnsmasq.d/lan.conf` with:
+  - `listen-address`: binds exclusively to the router's LAN IP
+  - `bind-interfaces`: avoids listening on every interface
+  - `address=/${CERT_CN}/${LAN_IP}`: local resolution of the TLS certificate's name
+  - `domain-needed`, `bogus-priv`: DNS security filters
+- Opens DNS ports (53/udp and 53/tcp) in iptables' INPUT chain
 
-**Mecanismo de portal cautivo con ipset:**
+**Captive-portal mechanism with ipset:**
 ```bash
 ipset create authed hash:ip,mac timeout ${AUTH_TIMEOUT} -exist
 ```
-Crea estructura de datos kernel-space para almacenar sesiones autorizadas
-(IP **y** MAC, no solo IP) con expiración automática.
+Creates a kernel-space data structure to store authorized sessions
+(IP **and** MAC, not just IP) with automatic expiration.
 
-**Reglas de redirección y filtrado:**
-1. **Redirección HTTP (tabla nat, PREROUTING):**
+**Redirect and filter rules:**
+1. **HTTP redirect (nat table, PREROUTING):**
    ```bash
    iptables -t nat -A PREROUTING -i $LAN_IF -p tcp --dport 80 \
      -m set ! --match-set authed src,src -j CP_REDIRECT
    ```
-   Intercepta peticiones HTTP de IPs no autenticadas y aplica DNAT hacia nginx local.
+   Intercepts HTTP requests from unauthenticated IPs and applies DNAT to the local nginx.
 
-2. **Control de forwarding (tabla filter, FORWARD):**
-   - Regla prioritaria: Permite todo el tráfico de IPs en conjunto `authed` hacia WAN
-   - Bloqueo selectivo HTTPS: Rechaza conexiones al puerto 443 de IPs no autenticadas con `tcp-reset`
-   - Bloqueo general: Rechaza cualquier otro tráfico de IPs no autenticadas
+2. **Forwarding control (filter table, FORWARD):**
+   - Priority rule: allows all traffic from IPs in the `authed` set toward WAN
+   - Selective HTTPS blocking: rejects connections to port 443 from unauthenticated IPs with `tcp-reset`
+   - General blocking: rejects any other traffic from unauthenticated IPs
 
-**Backend Python:**
-- Ejecutado en background con `python3 -u -m app.main ${PORTAL_PORT}`
-- Flag `-u` deshabilita buffering de stdout/stderr para logs inmediatos en contenedores
-- PID guardado para gestión del ciclo de vida del contenedor
+**Python backend:**
+- Run in the background with `python3 -u -m app.main ${PORTAL_PORT}`
+- The `-u` flag disables stdout/stderr buffering for immediate logs in containers
+- PID saved for container lifecycle management
 
-**Generación y configuración TLS:**
-- Verificación de existencia de certificado/clave
-- Generación automática con OpenSSL si no existen:
+**TLS generation and configuration:**
+- Checks whether a certificate/key already exists
+- Auto-generates one with OpenSSL if not:
   ```bash
   openssl req -x509 -nodes -newkey rsa:2048 \
     -keyout $TLS_KEY -out $TLS_CERT -days 365 \
     -subj "/CN=${CERT_CN}"
   ```
-- Configuración de nginx con dos bloques `server`:
-  - Puerto 80: Redirecciones 302 para rutas de detección de portal cautivo (`/generate_204`, `/connecttest.txt`, `/hotspot-detect.html`, etc.)
-  - Puerto 443: Terminación TLS y proxy inverso hacia backend Python (`proxy_pass http://127.0.0.1:${PORTAL_PORT}`)
+- Configures nginx with two `server` blocks:
+  - Port 80: 302 redirects for captive-portal detection paths (`/generate_204`, `/connecttest.txt`, `/hotspot-detect.html`, etc.)
+  - Port 443: TLS termination and reverse proxy to the Python backend (`proxy_pass http://127.0.0.1:${PORTAL_PORT}`)
 
-**Gestión de procesos:**
-- `wait "$PORTAL_PID"`: Mantiene el proceso principal (PID 1) vivo hasta la terminación del backend, evitando salida prematura del contenedor
+**Process management:**
+- `wait "$PORTAL_PID"`: keeps the main process (PID 1) alive until the backend terminates, avoiding a premature container exit
 
-### `Docker/router/start-ui.sh` y `Docker/client/start-ui.sh`
+### `Docker/router/start-ui.sh` and `Docker/client/start-ui.sh`
 
-Scripts idénticos que implementan un entorno gráfico completo en contenedor sin GPU:
+Identical scripts that implement a full graphical environment in a GPU-less container:
 
-**Servidor X virtual (Xvfb):**
+**Virtual X server (Xvfb):**
 ```bash
 Xvfb :1 -screen 0 ${XVFB_W}x${XVFB_H}x${XVFB_D} &
 ```
-Crea display virtual `:1` con geometría configurable (1366x768x24 por defecto). Permite ejecución de aplicaciones gráficas en contenedores headless.
+Creates virtual display `:1` with configurable geometry (1366x768x24 by default). Allows graphical applications to run in headless containers.
 
-**Window Manager:**
-- `fluxbox`: Gestor de ventanas ligero que proporciona funcionalidad básica de escritorio
+**Window manager:**
+- `fluxbox`: a lightweight window manager providing basic desktop functionality
 
-**Acceso remoto web (noVNC):**
+**Remote web access (noVNC):**
 ```bash
 websockify --web=/usr/share/novnc/ 6081 localhost:5900
 ```
-- `websockify` actúa como bridge WebSocket-to-TCP
-- Sirve interfaz web noVNC en puerto 6081
-- Traduce tráfico WebSocket del navegador a protocolo VNC nativo (puerto 5900)
+- `websockify` acts as a WebSocket-to-TCP bridge
+- Serves the noVNC web interface on port 6081
+- Translates browser WebSocket traffic to native VNC protocol (port 5900)
 
-**Servidor VNC:**
+**VNC server:**
 ```bash
 x11vnc -display :1 -nopw -forever
 ```
-- Expone display Xvfb vía protocolo VNC
-- `-nopw`: Sin autenticación (apropiado solo para entornos de laboratorio aislados)
-- `-forever`: Acepta múltiples conexiones consecutivas
+- Exposes the Xvfb display via the VNC protocol
+- `-nopw`: no authentication (only appropriate for isolated lab environments)
+- `-forever`: accepts multiple consecutive connections
 
-**Navegador automático:**
-- Lanzamiento condicional de Chromium si `BROWSER_URL` está definido
-- `--no-sandbox`: Deshabilita sandboxing (requerido en contenedores sin namespaces completos)
-- Delay de 2 segundos para permitir inicialización completa del servidor X
+**Automatic browser:**
+- Conditional Chromium launch if `BROWSER_URL` is set
+- `--no-sandbox`: disables sandboxing (required in containers without full namespaces)
+- 2-second delay to allow the X server to fully initialize
 
-**Persistencia del contenedor:**
+**Container persistence:**
 ```bash
 tail -f /tmp/novnc.log /tmp/x11vnc.log /tmp/fluxbox.log /tmp/dnsmasq.log 2>/dev/null || tail -f /tmp/novnc.log
 ```
-Mantiene proceso en foreground siguiendo logs. Implementa fallback si algunos logs no existen.
+Keeps the process in the foreground by following logs. Implements a fallback if some logs don't exist.
 
 ### `Docker/client/entrypoint.sh`
 
-Script minimalista de configuración de enrutamiento para contenedores cliente:
+A minimal routing-setup script for client containers:
 
 ```bash
 ip route replace default via "${ROUTER_IP}" || true
 ```
-- Establece ruta por defecto hacia el router del portal
-- `replace`: Sobrescribe ruta existente si presente
-- `|| true`: Continúa ejecución incluso si el comando falla (tolerancia a fallos)
-- Requiere capability `NET_ADMIN` en el contenedor
+- Sets the default route to point at the portal router
+- `replace`: overwrites the existing route if present
+- `|| true`: continues execution even if the command fails (fault tolerance)
+- Requires the `NET_ADMIN` capability in the container
 
-## Flujo de Operación
+## Operation Flow
 
-> Para levantar el entorno Docker, ver "Inicio Rápido" arriba
-> (`1-prepare.sh` + `2-deploy.sh`). Lo que sigue describe el ciclo de
-> autenticación una vez que el router y los clientes ya están corriendo.
+> To bring up the Docker environment, see "Quick Start" above
+> (`1-prepare.sh` + `2-deploy.sh`). What follows describes the
+> authentication cycle once the router and clients are already running.
 
-### Ciclo de Autenticación
+### Authentication Cycle
 
-#### Cliente No Autenticado
+#### Unauthenticated Client
 
-1. **Detección automática del portal:**
-   - El sistema operativo del cliente realiza peticiones de conectividad:
-     - Android: `GET /generate_204` (espera código 204, recibe 302)
-     - iOS/macOS: `GET /hotspot-detect.html` (espera HTML específico, recibe redirección)
-     - Windows: `GET /connecttest.txt` o `/ncsi.txt` (espera texto específico)
-   
-2. **Interceptación de tráfico HTTP:**
-   - Cliente intenta acceder a `http://example.com`
-   - Regla iptables en PREROUTING detecta IP no presente en `ipset authed`
-   - DNAT redirige conexión a `${LAN_IP}:80` (nginx local)
-   - Nginx responde con redirección 302 a `https://${CERT_CN}/login`
+1. **Automatic portal detection:**
+   - The client's operating system makes connectivity checks:
+     - Android: `GET /generate_204` (expects code 204, gets 302)
+     - iOS/macOS: `GET /hotspot-detect.html` (expects specific HTML, gets a redirect)
+     - Windows: `GET /connecttest.txt` or `/ncsi.txt` (expects specific text)
 
-3. **Resolución DNS controlada:**
-   - Cliente resuelve `portal.hastalap` (o CN configurado)
-   - `dnsmasq` responde con IP del router (`10.200.0.254`)
-   - Evita dependencia de DNS externo y garantiza acceso al portal
+2. **HTTP traffic interception:**
+   - Client tries to reach `http://example.com`
+   - An iptables PREROUTING rule detects the IP is not present in `ipset authed`
+   - DNAT redirects the connection to `${LAN_IP}:80` (local nginx)
+   - Nginx responds with a 302 redirect to `https://${CERT_CN}/login`
 
-4. **Presentación del portal:**
-   - Navegador establece conexión TLS con nginx (puerto 443)
-   - Nginx realiza proxy_pass al backend Python (puerto 8080)
-   - Backend sirve formulario de login mediante plantilla HTML
+3. **Controlled DNS resolution:**
+   - Client resolves `portal.hastalap` (or the configured CN)
+   - `dnsmasq` responds with the router's IP (`10.200.0.254`)
+   - Avoids dependence on external DNS and guarantees access to the portal
 
-#### Proceso de Autenticación
+4. **Portal presentation:**
+   - The browser establishes a TLS connection with nginx (port 443)
+   - Nginx performs a `proxy_pass` to the Python backend (port 8080)
+   - The backend serves the login form via an HTML template
 
-1. **Envío de credenciales:**
-   - Usuario completa formulario y envía POST a `/login`
-   - Backend extrae IP del cliente desde header `X-Real-IP` (inyectado por nginx)
+#### Authentication Process
 
-2. **Validación:**
-   - `check_credentials()` compara contra el hash almacenado
-     (PBKDF2-HMAC-SHA256, 260 000 iteraciones, salt por usuario) con
-     `hmac.compare_digest` (tiempo constante) — ver
+1. **Credential submission:**
+   - The user fills out the form and sends a POST to `/login`
+   - The backend extracts the client's IP from the `X-Real-IP` header (injected by nginx)
+
+2. **Validation:**
+   - `check_credentials()` compares against the stored hash
+     (PBKDF2-HMAC-SHA256, 260,000 iterations, per-user salt) using
+     `hmac.compare_digest` (constant-time) — see
      [`CAMBIOS_SEGURIDAD.md`](docs/CAMBIOS_SEGURIDAD.md).
-   - Antes de esto, se exige rate limiting (5 intentos/min) y un token
-     CSRF válido.
+   - Before that, rate limiting (5 attempts/min) and a valid CSRF token are required.
 
-3. **Autorización en firewall:**
+3. **Firewall authorization:**
    ```python
    subprocess.run(["ipset", "add", "authed", f"{client_ip},{client_mac}", "timeout", str(AUTH_TIMEOUT), "-exist"])
    ```
-   - Añade el par **IP,MAC** del cliente al conjunto `ipset authed` con
-     timeout — no solo la IP, para que otro dispositivo que reciba esa
-     misma IP más tarde (p.ej. tras expirar un lease DHCP) no herede la
-     sesión.
-   - Operación atómica a nivel de kernel, inmediatamente efectiva
+   - Adds the client's **IP,MAC** pair to the `ipset authed` set with a
+     timeout — not just the IP, so another device that later receives
+     that same IP (e.g. after a DHCP lease expires) doesn't inherit the
+     session.
+   - Kernel-level atomic operation, effective immediately
 
-4. **Activación de acceso:**
-   - Reglas iptables en FORWARD permiten tráfico de IPs en conjunto `authed`
-   - Cliente puede realizar conexiones a Internet sin restricciones
-   - Timeout configurable (por defecto 3600 segundos) tras el cual la IP se elimina automáticamente
+4. **Access activation:**
+   - iptables FORWARD rules allow traffic from IPs in the `authed` set
+   - The client can make unrestricted internet connections
+   - Configurable timeout (3600 seconds by default) after which the IP is automatically removed
 
-#### Cliente Autenticado
+#### Authenticated Client
 
-- Todo el tráfico hacia WAN atraviesa regla iptables:
+- All traffic toward WAN passes through this iptables rule:
   ```bash
   iptables -I FORWARD 1 -i $LAN_IF -o $UPLINK_IF -m set --match-set authed src,src -j ACCEPT
   ```
-  (`src,src`: coincide IP **y** MAC del paquete contra el conjunto `hash:ip,mac`)
-- Peticiones HTTP ya no son redirigidas (regla PREROUTING no coincide)
-- Navegación normal sin interceptación
+  (`src,src`: matches both the packet's IP **and** MAC against the `hash:ip,mac` set)
+- HTTP requests are no longer redirected (the PREROUTING rule no longer matches)
+- Normal browsing without interception
 
-### Panel de Administración
+### Admin Panel
 
-Acceso protegido con HTTP Basic Authentication:
+Access protected with HTTP Basic Authentication:
 
-1. **Acceso al panel:**
+1. **Accessing the panel:**
    - URL: `https://portal.hastalap/admin`
-   - Credenciales del usuario `admin` definidas en `users.json`
+   - Credentials for the `admin` user defined in `users.json`
 
-2. **Funcionalidades:**
-   - **Visualización de IPs autorizadas:**
+2. **Features:**
+   - **View authorized IPs:**
      ```bash
      ipset list authed
      ```
-     Muestra conjunto actual con tiempos de expiración restantes
-   
-   - **Revocación manual de acceso:**
+     Shows the current set with remaining expiration times
+
+   - **Manual access revocation:**
      ```python
      subprocess.run(["ipset", "del", "authed", f"{ip},{mac}"])
      ```
-     Elimina esa sesión (IP+MAC) inmediatamente del conjunto autorizado
+     Immediately removes that session (IP+MAC) from the authorized set
 
-   - **Gestión de usuarios**: crear y eliminar cuentas desde el propio
-     panel (`/admin/users`), con token CSRF y longitud mínima de
-     contraseña. La cuenta `admin` no se puede eliminar desde ahí.
+   - **User management**: create and delete accounts from the panel
+     itself (`/admin/users`), with a CSRF token and a minimum password
+     length. The `admin` account can't be deleted from there.
 
-## Requisitos del Sistema
+## System Requirements
 
 ### Software
 
 - **Docker Engine**: ≥ 20.10
-- **Docker Compose** (opcional): ≥ 2.0 para orquestación simplificada
-- **Sistema operativo host**:
-  - Linux (nativo): Funcionalidad completa
-  - Windows con WSL2: Funcional con limitaciones en `--network=host`
-  - macOS con Docker Desktop: Funcional con limitaciones similares a Windows
+- **Docker Compose** (optional): ≥ 2.0 for simplified orchestration
+- **Host operating system**:
+  - Linux (native): full functionality
+  - Windows with WSL2: functional with `--network=host` limitations
+  - macOS with Docker Desktop: functional with limitations similar to Windows
 
-### Capacidades de Red
+### Network Capabilities
 
-El contenedor router requiere privilegios elevados:
-- `CAP_NET_ADMIN`: Configuración de interfaces, iptables, ipset
-- `CAP_NET_RAW`: Manipulación de sockets raw para iptables
-- Alternativa: `--privileged` (otorga todas las capacidades, menos seguro)
+The router container requires elevated privileges:
+- `CAP_NET_ADMIN`: interface, iptables, ipset configuration
+- `CAP_NET_RAW`: raw socket manipulation for iptables
+- Alternative: `--privileged` (grants all capabilities, less secure)
 
-### Recursos Mínimos
+### Minimum Resources
 
-- **CPU**: 2 núcleos (recomendado 4 para múltiples clientes con UI)
-- **RAM**: 2 GB (4 GB recomendado con clientes gráficos)
-- **Disco**: 500 MB para imágenes base + logs
+- **CPU**: 2 cores (4 recommended for multiple clients with UI)
+- **RAM**: 2 GB (4 GB recommended with graphical clients)
+- **Disk**: 500 MB for base images + logs
 
-## Configuración
+## Configuration
 
-### Variables de Entorno
+### Environment Variables
 
 #### Router (`Docker/router/entrypoint.sh`)
 
-| Variable | Valor por Defecto | Descripción |
+| Variable | Default | Description |
 |----------|-------------------|-------------|
-| `UPLINK_IF` | `eth0` | Interfaz de red WAN (hacia Internet) |
-| `LAN_IF` | `eth1` | Interfaz de red LAN (hacia clientes) |
-| `LAN_IP` | `10.200.0.254` | Dirección IP del router en la LAN |
-| `LAN_CIDR` | `10.200.0.0/24` | Subred de la LAN en notación CIDR |
-| `PORTAL_PORT` | `8080` | Puerto del backend Python |
-| `NGINX_HTTP_PORT` | `80` | Puerto HTTP de nginx |
-| `NGINX_HTTPS_PORT` | `443` | Puerto HTTPS de nginx |
-| `DNS_CACHE_SIZE` | `1000` | Tamaño de caché de dnsmasq |
-| `AUTH_TIMEOUT` | `3600` | Tiempo de expiración de autorizaciones (segundos) |
-| `CERT_CN` | `portal.hastalap` | Common Name del certificado TLS |
-| `BROWSER_URL` | *(vacío)* | URL para navegador en noVNC (opcional) |
+| `UPLINK_IF` | `eth0` | WAN network interface (toward the internet) |
+| `LAN_IF` | `eth1` | LAN network interface (toward clients) |
+| `LAN_IP` | `10.200.0.254` | Router's IP address on the LAN |
+| `LAN_CIDR` | `10.200.0.0/24` | LAN subnet in CIDR notation |
+| `PORTAL_PORT` | `8080` | Python backend port |
+| `NGINX_HTTP_PORT` | `80` | nginx HTTP port |
+| `NGINX_HTTPS_PORT` | `443` | nginx HTTPS port |
+| `DNS_CACHE_SIZE` | `1000` | dnsmasq cache size |
+| `AUTH_TIMEOUT` | `3600` | Authorization expiration time (seconds) |
+| `CERT_CN` | `portal.hastalap` | TLS certificate's Common Name |
+| `BROWSER_URL` | *(empty)* | URL for the noVNC browser (optional) |
 
-#### Cliente (`Docker/client/entrypoint.sh`)
+#### Client (`Docker/client/entrypoint.sh`)
 
-| Variable | Valor por Defecto | Descripción |
+| Variable | Default | Description |
 |----------|-------------------|-------------|
-| `ROUTER_IP` | `10.200.0.254` | IP del gateway/router |
-| `BROWSER_URL` | *(vacío)* | URL inicial del navegador en noVNC |
-| `VNC_PW` | *(sin contraseña)* | Contraseña VNC (requiere modificación de scripts) |
+| `ROUTER_IP` | `10.200.0.254` | Gateway/router IP |
+| `BROWSER_URL` | *(empty)* | Initial browser URL in noVNC |
+| `VNC_PW` | *(no password)* | VNC password (requires script changes) |
 
-### Archivos de Configuración
+### Configuration Files
 
 #### `Docker/router/app/users.json`
 
-Almacén de credenciales de usuarios (contraseñas hasheadas con PBKDF2, no
-en texto plano; ver [`CAMBIOS_SEGURIDAD.md`](docs/CAMBIOS_SEGURIDAD.md)).
-No se trackea en git — la app genera un `admin` con contraseña aleatoria en
-el primer arranque si el archivo no existe:
+User credential store (passwords hashed with PBKDF2, not plaintext;
+see [`CAMBIOS_SEGURIDAD.md`](docs/CAMBIOS_SEGURIDAD.md)). Not tracked in
+git — the app generates an `admin` account with a random password on
+first startup if the file doesn't exist:
 ```json
 [
   {
@@ -384,381 +387,387 @@ el primer arranque si el archivo no existe:
 
 #### `Docker/router/app/config.py`
 
-Configuración centralizada del backend Python:
+Centralized Python backend configuration:
 ```python
 AUTH_TIMEOUT = int(os.getenv("AUTH_TIMEOUT", "3600"))
 IPSET_NAME = "authed"
 USERS_FILE = Path(__file__).parent / "users.json"
 ```
 
-## Despliegue
+## Deployment
 
-Ver "Inicio Rápido" al comienzo de este documento: `1-prepare.sh` +
-`2-deploy.sh` para Docker, o `sudo bash install.sh` para nativo.
+See "Quick Start" at the top of this document: `1-prepare.sh` +
+`2-deploy.sh` for Docker, or `sudo bash install.sh` for native.
 
-### Verificación del Sistema
+### System Verification
 
-#### Comprobar reglas iptables en el router:
+#### Check iptables rules on the router:
 ```bash
 docker exec router iptables -t nat -L -n -v
 docker exec router iptables -L FORWARD -n -v
 ```
 
-#### Inspeccionar conjunto ipset:
+#### Inspect the ipset set:
 ```bash
 docker exec router ipset list authed
 ```
 
-#### Verificar conectividad desde cliente:
+#### Verify connectivity from a client:
 ```bash
-# Acceder a shell de cliente (client-1 o client-2, ver 2-deploy.sh)
+# Access the client shell (client-1 or client-2, see 2-deploy.sh)
 docker exec -it client-1 bash
 
-# Probar resolución DNS
+# Test DNS resolution
 nslookup portal.hastalap
-# Debe resolver a 10.200.0.254
+# Should resolve to 10.200.0.254
 
-# Intentar acceso HTTP antes de autenticación
+# Try HTTP access before authentication
 curl -I http://example.com
-# Debe recibir redirección 302
+# Should get a 302 redirect
 
-# Verificar ruta por defecto
+# Verify the default route
 ip route show default
-# Debe mostrar: default via 10.200.0.254
+# Should show: default via 10.200.0.254
 ```
 
-## Consideraciones de Seguridad
+## Security Considerations
 
-### En Entorno Académico/Laboratorio
+### In an Academic/Lab Environment
 
-El proyecto está diseñado para demostraciones y aprendizaje, con configuraciones permisivas aceptables en redes aisladas:
+The project is designed for demos and learning, with permissive
+settings acceptable on isolated networks:
 
-- **VNC sin contraseña**: Apropiado en red de laboratorio sin acceso externo
-- **Certificado autofirmado** (modo default): Suficiente para demostrar funcionamiento de TLS
-- **`--no-sandbox` en Chromium**: Necesario en contenedores, bajo riesgo en entorno controlado
+- **No-password VNC**: appropriate for a lab network with no external access
+- **Self-signed certificate** (default mode): enough to demonstrate TLS working
+- **`--no-sandbox` on Chromium**: necessary in containers, low risk in a controlled environment
 
-### Para Despliegue en Producción
+### For Production Deployment
 
-Modificaciones críticas requeridas:
+Critical changes required:
 
-1. **Autenticación VNC:**
+1. **VNC authentication:**
    ```bash
    x11vnc -display :1 -usepw -forever
    ```
-   Habilitar contraseña con `-usepw` y configurarla previamente.
+   Enable a password with `-usepw` and configure it beforehand.
 
-2. **Certificados TLS válidos:** ✅ implementado en el despliegue nativo
-   (`native/`) — `TLS_MODE=letsencrypt` en `portal.conf` emite y renueva
-   automáticamente un certificado real vía `certbot` (reto HTTP-01), con
-   una excepción de firewall acotada solo al puerto 80 en WAN. Ver
-   `native/README.md`, sección "TLS con Let's Encrypt". El despliegue
-   Docker (pensado para laboratorio, normalmente sin IP pública) sigue con
-   autofirmado o "trae tu propio certificado".
+2. **Valid TLS certificates:** ✅ implemented in the native deployment
+   (`native/`) — `TLS_MODE=letsencrypt` in `portal.conf` issues and
+   automatically renews a real certificate via `certbot` (HTTP-01
+   challenge), with a firewall exception limited to port 80 on WAN. See
+   `native/README.md`, "TLS with Let's Encrypt" section. The Docker
+   deployment (meant for labs, usually without a public IP) still uses
+   self-signed or "bring your own certificate".
 
-3. **Hash de contraseñas:** ✅ implementado — `PBKDF2-HMAC-SHA256`
-   (260 000 iteraciones, salt aleatorio por usuario) en `app/users.py`,
-   con comparación en tiempo constante y migración automática de
-   contraseñas en texto plano heredadas. Ver `docs/CAMBIOS_SEGURIDAD.md`.
+3. **Password hashing:** ✅ implemented — `PBKDF2-HMAC-SHA256`
+   (260,000 iterations, random per-user salt) in `app/users.py`, with
+   constant-time comparison and automatic migration of legacy plaintext
+   passwords. See `docs/CAMBIOS_SEGURIDAD.md`.
 
-4. **Restricción de capacidades Docker:**
-   - Evitar `--privileged`
-   - Usar solo las capacidades mínimas necesarias (`NET_ADMIN`, `NET_RAW`)
-   - Implementar perfiles AppArmor/SELinux
+4. **Restricting Docker capabilities:**
+   - Avoid `--privileged`
+   - Use only the minimum necessary capabilities (`NET_ADMIN`, `NET_RAW`)
+   - Implement AppArmor/SELinux profiles
 
-5. **Logging y auditoría:**
-   - Registrar todos los intentos de autenticación
-   - Monitorizar cambios en conjunto `ipset`
-   - Implementar rotación de logs
+5. **Logging and auditing:**
+   - Log every authentication attempt
+   - Monitor changes to the `ipset` set
+   - Implement log rotation
 
-6. **Hardening de iptables:**
-   - Reglas de rate limiting para prevenir ataques de fuerza bruta
-   - Logging de paquetes rechazados para análisis forense
-   - Reglas de salida restrictivas (egress filtering)
+6. **iptables hardening:**
+   - Rate-limiting rules to prevent brute-force attacks
+   - Log rejected packets for forensic analysis
+   - Restrictive egress-filtering rules
 
-7. **Aislamiento de red:**
-   - VLANs físicas separadas para segmentación real
-   - No exponer puertos noVNC (`6081`, `6091`) fuera de red de gestión
-   - Implementar segmentación entre usuarios autenticados
+7. **Network isolation:**
+   - Separate physical VLANs for real segmentation
+   - Don't expose noVNC ports (`6081`, `6091`) outside the management network
+   - Implement segmentation between authenticated users
 
-## Pruebas
+## Testing
 
-El backend (`Docker/router/app/`) tiene una batería de pruebas unitarias en
-`Docker/router/tests/`, con `unittest`/`unittest.mock` de la librería
-estándar (sin pytest ni otras dependencias, en línea con el resto del
-proyecto). `subprocess.run` se sustituye por un doble de prueba
-(`tests/fakes.py`) que reproduce el comportamiento real de `ip neigh`/`ipset`
-observado en pruebas end-to-end contra Docker — no se necesita `ipset`,
-`iptables` ni privilegios de root para correrlas. Corren automáticamente
-en cada push/PR vía GitHub Actions
-(`.github/workflows/tests.yml`, matriz Python 3.11/3.13), junto con un
-chequeo de sintaxis de todos los scripts `.sh` del repo.
+The backend (`Docker/router/app/`) has a unit-test suite in
+`Docker/router/tests/`, using the standard library's
+`unittest`/`unittest.mock` (no pytest or other dependencies, in line
+with the rest of the project). `subprocess.run` is replaced by a test
+double (`tests/fakes.py`) that reproduces the real behavior of `ip
+neigh`/`ipset` observed in end-to-end tests against Docker — no
+`ipset`, `iptables`, or root privileges are needed to run them. They
+run automatically on every push/PR via GitHub Actions
+(`.github/workflows/tests.yml`, Python 3.11/3.13 matrix), together with
+a syntax check of every `.sh` script in the repo.
 
 ```bash
 cd Docker/router
 python -m unittest discover -s tests -t . -v
 ```
 
-Cubren: vinculación de sesión a IP+MAC (`ipset_utils`, `portal`), CSRF y
-rate limiting, hash/migración de contraseñas y escritura atómica de
-`users.json`, autenticación HTTP Basic del panel admin, y el filtrado de
-`X-Real-IP`/path traversal en `main.py`.
+Covers: session binding to IP+MAC (`ipset_utils`, `portal`), CSRF and
+rate limiting, password hashing/migration and atomic `users.json`
+writes, admin-panel HTTP Basic authentication, and
+`X-Real-IP`/path-traversal filtering in `main.py`.
 
 ## Troubleshooting
 
-### Router no inicia correctamente
+### Router doesn't start correctly
 
-**Síntoma:** Contenedor se detiene inmediatamente o muestra errores de permisos.
+**Symptom:** the container stops immediately or shows permission errors.
 
-**Diagnóstico:**
+**Diagnosis:**
 ```bash
 docker logs router
 ```
 
-**Causas comunes:**
-1. **Falta de capacidades de red:**
+**Common causes:**
+1. **Missing network capabilities:**
    ```
    Error: iptables: Permission denied
    ```
-   **Solución:** Verificar que `docker run` incluye `--cap-add=NET_ADMIN --cap-add=NET_RAW`.
+   **Fix:** verify `docker run` includes `--cap-add=NET_ADMIN --cap-add=NET_RAW`.
 
-2. **Interfaz LAN no recibe IP:**
+2. **LAN interface not receiving an IP:**
    ```
-   [2025-11-17 10:30:45] Esperando IP en eth1... (intentos agotados)
+   [2025-11-17 10:30:45] Waiting for IP on eth1... (attempts exhausted)
    ```
-   **Solución:** Verificar que `docker network connect` se ejecutó correctamente:
+   **Fix:** verify `docker network connect` ran successfully:
    ```bash
    docker inspect router | grep Networks -A 20
    ```
 
-3. **Puerto 8080 ya en uso:**
+3. **Port 8080 already in use:**
    ```
    OSError: [Errno 98] Address already in use
    ```
-   **Solución:** Cambiar `PORTAL_PORT` o identificar proceso conflictivo en host.
+   **Fix:** change `PORTAL_PORT` or identify the conflicting process on the host.
 
-### Cliente no puede acceder a Internet después de autenticación
+### Client can't access the internet after authenticating
 
-**Diagnóstico:**
+**Diagnosis:**
 ```bash
-# En router, verificar que IP está en ipset
+# On the router, verify the IP is in the ipset
 docker exec router ipset list authed
 
-# Verificar reglas FORWARD
+# Verify the FORWARD rules
 docker exec router iptables -L FORWARD -n -v --line-numbers
 
-# En cliente, probar conectividad
+# On the client, test connectivity
 docker exec client-1 ping -c 3 8.8.8.8
 ```
 
-**Causas comunes:**
-1. **IP no añadida al conjunto `ipset`:**
-   - Revisar logs del backend Python para errores en `subprocess.run(["ipset", "add", ...])`
-   - Añadir manualmente para test: `docker exec router ipset add authed 10.200.0.11`
+**Common causes:**
+1. **IP not added to the `ipset` set:**
+   - Check the Python backend logs for errors in `subprocess.run(["ipset", "add", ...])`
+   - Add manually for testing: `docker exec router ipset add authed 10.200.0.11`
 
-2. **Orden incorrecto de reglas FORWARD:**
-   - La regla de ACCEPT para `authed` debe estar antes que las de REJECT
-   - Verificar con `iptables -L FORWARD --line-numbers`
+2. **Incorrect order of FORWARD rules:**
+   - The ACCEPT rule for `authed` must come before the REJECT rules
+   - Verify with `iptables -L FORWARD --line-numbers`
 
-3. **NAT no funcional:**
+3. **NAT not working:**
    ```bash
    docker exec router iptables -t nat -L POSTROUTING -n -v
    ```
-   Debe haber regla MASQUERADE hacia interfaz WAN.
+   There should be a MASQUERADE rule toward the WAN interface.
 
-### Portal no redirige tráfico HTTP
+### Portal doesn't redirect HTTP traffic
 
-**Síntoma:** Cliente accede directamente a sitios web sin ver página de login.
+**Symptom:** the client reaches websites directly without seeing the login page.
 
-**Diagnóstico:**
+**Diagnosis:**
 ```bash
-# Verificar regla de redirección PREROUTING
+# Verify the PREROUTING redirect rule
 docker exec router iptables -t nat -L PREROUTING -n -v
 
-# Captura de tráfico (si tcpdump está disponible)
+# Traffic capture (if tcpdump is available)
 docker exec router tcpdump -i eth1 -n port 80
 ```
 
-**Causas comunes:**
-1. **Cliente ya autenticado:**
-   - IP presente en `ipset authed`
-   - Eliminar para test: `docker exec router ipset del authed 10.200.0.11`
+**Common causes:**
+1. **Client already authenticated:**
+   - IP present in `ipset authed`
+   - Remove for testing: `docker exec router ipset del authed 10.200.0.11`
 
-2. **DNS no apunta al router:**
-   - Cliente resuelve nombres con DNS externo, bypass del portal
-   - Verificar: `docker exec client-1 cat /etc/resolv.conf`
-   - Debe contener `nameserver 10.200.0.254`
+2. **DNS not pointing at the router:**
+   - Client resolves names with external DNS, bypassing the portal
+   - Check: `docker exec client-1 cat /etc/resolv.conf`
+   - Should contain `nameserver 10.200.0.254`
 
-3. **Nginx no escucha en puerto 80:**
+3. **Nginx not listening on port 80:**
    ```bash
    docker exec router netstat -tlnp | grep :80
    ```
-   Debe mostrar nginx escuchando en `0.0.0.0:80`.
+   Should show nginx listening on `0.0.0.0:80`.
 
-### Certificado TLS rechazado por navegador
+### Browser rejects the TLS certificate
 
-**Síntoma:** Navegador muestra error "Your connection is not private" / "NET::ERR_CERT_AUTHORITY_INVALID".
+**Symptom:** the browser shows "Your connection is not private" / "NET::ERR_CERT_AUTHORITY_INVALID".
 
-**Explicación:** Comportamiento esperado con certificados autofirmados.
+**Explanation:** expected behavior with self-signed certificates.
 
-**Opciones:**
-1. **Aceptar excepción manualmente** (apropiado para laboratorio):
-   - Chrome: Click en "Advanced" → "Proceed to portal.hastalap (unsafe)"
+**Options:**
+1. **Accept the exception manually** (fine for a lab):
+   - Chrome: click "Advanced" → "Proceed to portal.hastalap (unsafe)"
    - Firefox: "Advanced" → "Accept the Risk and Continue"
 
-2. **Instalar CA raíz en cliente** (para pruebas extensivas):
+2. **Install the root CA on the client** (for extensive testing):
    ```bash
-   # Exportar certificado del router
+   # Export the router's certificate
    docker cp router:/etc/ssl/certs/portal.crt ./
 
-   # En sistema host, añadir a almacén de confianza
+   # On the host system, add it to the trust store
    # Linux: cp portal.crt /usr/local/share/ca-certificates/ && update-ca-certificates
    # Windows: Import certificate → Trusted Root Certification Authorities
    # macOS: Keychain Access → Add to System → Trust Always
    ```
 
-### Interfaz noVNC no carga
+### noVNC interface doesn't load
 
-**Síntoma:** `http://localhost:6081` no responde o muestra error de conexión.
+**Symptom:** `http://localhost:6081` doesn't respond or shows a connection error.
 
-**Diagnóstico:**
+**Diagnosis:**
 ```bash
-# Verificar que contenedor está en ejecución
+# Verify the container is running
 docker ps | grep c1
 
-# Verificar logs de websockify
+# Check websockify logs
 docker exec client-1 cat /tmp/novnc.log
 
-# Verificar puerto mapeado
+# Verify the mapped port
 docker port c1
 ```
 
-**Causas comunes:**
-1. **Puerto no mapeado correctamente:**
-   - Verificar que `docker run` incluye `-p 6081:6081`
-   - Posible conflicto si puerto ya está en uso en host
+**Common causes:**
+1. **Port not mapped correctly:**
+   - Verify `docker run` includes `-p 6081:6081`
+   - Possible conflict if the port is already in use on the host
 
-2. **Servicios noVNC no iniciados:**
+2. **noVNC services not started:**
    ```bash
    docker exec client-1 pgrep websockify
    docker exec client-1 pgrep x11vnc
    ```
-   Si no hay PIDs, `start-ui.sh` no se ejecutó correctamente.
+   No PIDs means `start-ui.sh` didn't run correctly.
 
-3. **Xvfb falló al iniciar:**
+3. **Xvfb failed to start:**
    ```bash
    docker exec client-1 cat /tmp/fluxbox.log
    ```
-   Puede indicar falta de permisos o dependencias.
+   May indicate missing permissions or dependencies.
 
-## Mejoras Futuras
+## Future Improvements
 
-### Funcionalidades Planificadas
+### Planned Features
 
-1. **Base de datos para usuarios:**
-   - Migración de `users.json` a SQLite o PostgreSQL
-   - Soporte para miles de usuarios
-   - Auditoría de sesiones y comportamiento
+1. **User database:**
+   - Migrate `users.json` to SQLite or PostgreSQL
+   - Support for thousands of users
+   - Session and behavior auditing
 
-2. **Autenticación RADIUS/LDAP:**
-   - Integración con servicios de directorio corporativos
+2. **RADIUS/LDAP authentication:**
+   - Integration with corporate directory services
    - Single Sign-On (SSO)
-   - Sincronización automática de usuarios
+   - Automatic user sync
 
-3. **Límites de ancho de banda por usuario:**
-   - Implementación con `tc` (traffic control)
-   - QoS diferenciado por planes de servicio
-   - Estadísticas de consumo en tiempo real
+3. **Per-user bandwidth limits:**
+   - Implementation with `tc` (traffic control)
+   - Differentiated QoS by service plan
+   - Real-time usage statistics
 
-4. **Portal multilingüe:**
-   - Detección de idioma del navegador
-   - Templates Jinja2 con i18n
-   - Configuración regional por ubicación
+4. **Multilingual portal:**
+   - Browser language detection
+   - Jinja2 templates with i18n
+   - Region-based configuration
 
-5. **API REST para gestión:**
-   - Endpoints para CRUD de usuarios
-   - Consulta de sesiones activas
-   - Integración con sistemas de billing
+5. **REST management API:**
+   - Endpoints for user CRUD
+   - Active-session queries
+   - Integration with billing systems
 
-6. **Captcha en formulario de login:**
-   - Prevención de ataques automatizados
-   - Integración con reCAPTCHA o hCaptcha
-   - Rate limiting por IP
+6. **Captcha on the login form:**
+   - Prevent automated attacks
+   - reCAPTCHA or hCaptcha integration
+   - Per-IP rate limiting
 
-7. **Dashboard administrativo web:**
-   - Visualizaciones de métricas con Chart.js/D3.js
-   - Alertas configurables
-   - Gestión de políticas de firewall
+7. **Web admin dashboard:**
+   - Metric visualizations with Chart.js/D3.js
+   - Configurable alerts
+   - Firewall-policy management
 
-### Optimizaciones
+### Optimizations
 
-1. **Reducción de tamaño de imágenes:**
-   - Multi-stage builds en Dockerfile
-   - Uso de imágenes alpine cuando sea posible
-   - Eliminación de dependencias de compilación
+1. **Smaller image sizes:**
+   - Multi-stage builds in the Dockerfile
+   - Alpine base images where possible
+   - Removal of build-time dependencies
 
-2. **Cache de resoluciones DNS:**
-   - Incrementar `cache-size` de dnsmasq para redes grandes
-   - Implementar DNS recursivo local completo
+2. **DNS resolution caching:**
+   - Increase dnsmasq's `cache-size` for large networks
+   - Implement a full local recursive DNS resolver
 
-3. **Persistencia de sesiones:**
-   - Almacenamiento de conjunto `ipset` en disco
-   - Restauración automática tras reinicio del contenedor
-   - Respaldo de `users.json` con versionado
+3. **Session persistence:**
+   - Store the `ipset` set on disk
+   - Automatically restore it after a container restart
+   - Versioned backup of `users.json`
 
-## Scripts de Despliegue
+## Deployment Scripts
 
 ### Docker
 
-- **`Docker/1-prepare.sh`**: Construye las imágenes Docker (router y clientes)
-- **`Docker/2-deploy.sh`**: Despliega los contenedores con configuración de red (porta-lan con 2 clientes)
+- **`Docker/1-prepare.sh`**: builds the Docker images (router and clients)
+- **`Docker/2-deploy.sh`**: deploys the containers with the network setup (portal-lan with 2 clients)
 
 ### Native (Linux)
 
-Instalación en 4 pasos independientes (instalar → configurar interfaces →
-iniciar → verificar), para que aplicar cambios de red no requiera reinstalar
-nada. Detalle completo en `native/README.md`.
+Installation in 4 independent steps (install → configure interfaces →
+start → verify), so applying network changes doesn't require
+reinstalling anything. Full detail in `native/README.md`.
 
-- **`native/install.sh`**: instala dependencias (iptables, ipset, dnsmasq,
-  nginx, python3), copia la aplicación a `/opt/captive-portal` y registra el
-  servicio systemd `captive-portal` (con reinicio automático si falla).
-  **Uso**: `sudo bash native/install.sh`
-- **`native/configure-interfaces.sh`**: asistente interactivo para elegir
-  WAN/LAN y la IP del portal.
-- **`native/start-portal.sh`**: aplica `iptables`/`ipset` (idempotente) e
-  inicia dnsmasq, nginx y el backend.
-- **`native/stop-portal.sh`** / **`native/status-portal.sh`**: detener y
-  limpiar, o consultar el estado (servicios, sesiones autenticadas, logs).
+- **`native/install.sh`**: installs dependencies (iptables, ipset,
+  dnsmasq, nginx, python3), copies the app to `/opt/captive-portal`, and
+  registers the `captive-portal` systemd service (with automatic
+  restart on failure).
+  **Usage**: `sudo bash native/install.sh`
+- **`native/configure-interfaces.sh`**: interactive wizard to choose
+  WAN/LAN and the portal's IP.
+- **`native/start-portal.sh`**: applies `iptables`/`ipset` (idempotent)
+  and starts dnsmasq, nginx, and the backend.
+- **`native/stop-portal.sh`** / **`native/status-portal.sh`**: stop and
+  clean up, or check status (services, authenticated sessions, logs).
 
-## Documentación Adicional
+## Additional Documentation
 
-- **`docs/ARQUITECTURA.md`**: Diagramas del flujo de redirección/autenticación
-  y de la defensa contra suplantación de MAC (`hash:ip,mac`).
-- **`native/TLS.md`**: Certificado propio y Let's Encrypt en el despliegue
-  nativo — los tres modos de TLS, cómo cambiar entre ellos y diagnóstico.
-- **`docs/SETUP_VM_VIRTUALBOX.md`**: Guía completa paso a paso para configurar 2 máquinas virtuales Ubuntu con VirtualBox (router + cliente) incluyendo:
-  - Creación de red Host-Only
-  - Instalación de Ubuntu Desktop en ambas VMs
-  - Configuración de interfaces de red
-  - Instalación del portal mediante script
-  - Pruebas y troubleshooting
-- **`docs/CAMBIOS_SEGURIDAD.md`**: Auditoría de seguridad de diciembre de
-  2025 — qué se corrigió y por qué.
-- **`docs/ANALISIS_PROYECTO.md`**: Análisis técnico profundo del proyecto
-  en una etapa temprana (nota histórica al inicio del documento).
-- **`docs/captiveportal.md`**: Enunciado original de la asignatura que dio
-  origen al proyecto.
+- **`docs/ARQUITECTURA.md`**: diagrams of the redirect/authentication
+  flow and of the defense against MAC spoofing (`hash:ip,mac`).
+- **`native/TLS.md`**: self-signed certificate and Let's Encrypt in the
+  native deployment — the three TLS modes, how to switch between them,
+  and diagnostics.
+- **`docs/SETUP_VM_VIRTUALBOX.md`**: complete step-by-step guide to
+  setting up 2 Ubuntu virtual machines with VirtualBox (router +
+  client), including:
+  - Creating a Host-Only network
+  - Installing Ubuntu Desktop on both VMs
+  - Configuring network interfaces
+  - Installing the portal via script
+  - Testing and troubleshooting
+- **`docs/CAMBIOS_SEGURIDAD.md`**: December 2025 security audit — what
+  was fixed and why.
+- **`docs/ANALISIS_PROYECTO.md`**: an in-depth technical analysis of the
+  project at an earlier stage (historical note at the top of the document).
+- **`docs/captiveportal.md`**: the original course assignment that this
+  project grew out of.
 
-## Licencia
+## License
 
-Este proyecto se desarrolla con fines educativos y académicos. Consultar archivo `LICENSE` para detalles de distribución y uso.
+This project is developed for educational and academic purposes. See
+the `LICENSE` file for distribution and usage details.
 
-## Autores y Contribuciones
+## Authors and Contributions
 
-Proyecto desarrollado para el curso de Redes de Computadoras.
+Project developed for the Computer Networks course.
 
-Para reportar problemas o sugerir mejoras, utilizar el sistema de issues del repositorio.
+To report issues or suggest improvements, use the repository's issue tracker.
 
-## Referencias
+## References
 
 - [Netfilter/iptables Documentation](https://www.netfilter.org/documentation/)
 - [ipset Man Page](https://ipset.netfilter.org/ipset.man.html)
